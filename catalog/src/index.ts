@@ -146,6 +146,5 @@ ${
 		? `Packages not moved due to version differences: ${packagesNotSelected.length}
 `
 		: ""
-}
-Check the log for package details.`);
+}`);
 }
