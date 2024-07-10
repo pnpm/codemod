@@ -1,12 +1,7 @@
 {
 	"name": "pnpm-codemod",
-	"version": "1.0.0",
-	"description": "",
-	"main": "index.js",
+  "private": true,
 	"packageManager": "pnpm@9.5.0",
-	"keywords": [],
-	"author": "",
-	"license": "ISC",
 	"devDependencies": {
 		"@biomejs/biome": "^1.8.3"
 	}

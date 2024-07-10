@@ -2,6 +2,6 @@
 
 ## Migrate to pnpm catalog
 ```sh
-pnpx codemod@latest pnpm/catalog
+pnpx codemod pnpm/catalog
 ```
 [README](./catalog/README.md)

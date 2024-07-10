@@ -1,22 +1,18 @@
 import type { Api } from "@codemod.com/workflow";
 import * as semver from "semver";
 
-type PackagesVersions = Record<
-	string,
-	{
-		usages: number;
-		versions: string[];
-	}
->;
+type PackagesVersions = Record<string, string[]>;
 
 type PackageJson = {
+	name: string;
 	packageManager?: string;
 	dependencies?: Record<string, string>;
 	devDependencies?: Record<string, string>;
+	optionalDependencies?: Record<string, string>;
 };
 
 const isAlias = (version: string) => {
-	return version.match(/^p?npm:/)?.length === 1;
+	return version.match(/^npm:/)?.length === 1;
 };
 
 const validRange = (version: string) => {
@@ -36,20 +32,16 @@ const readDependencies = (
 		}
 
 		if (!packagesVersions[name]) {
-			packagesVersions[name] = {
-				usages: 0,
-				versions: [],
-			};
+			packagesVersions[name] = [];
 		}
 
-		packagesVersions[name].usages += 1;
-		if (!packagesVersions[name].versions.includes(version)) {
-			packagesVersions[name].versions.push(version);
+		if (!packagesVersions[name].includes(version)) {
+			packagesVersions[name].push(version);
 		}
 	}
 };
 
-export async function workflow({ files, dirs, question, exec }: Api) {
+export async function workflow({ files, dirs, exec }: Api) {
 	const workspaceFile = files("pnpm-workspace.yaml").yaml();
 	const workspaceConfig = (
 		await workspaceFile.map(({ getContents }) =>
@@ -80,80 +72,29 @@ export async function workflow({ files, dirs, question, exec }: Api) {
 
 		readDependencies(packagesVersions, packageJson.dependencies);
 		readDependencies(packagesVersions, packageJson.devDependencies);
+		readDependencies(packagesVersions, packageJson.optionalDependencies);
 	});
 
-	if (!Object.entries(packagesVersions).some(([_, { usages }]) => usages > 1)) {
-		console.log("No duplicated dependencies found");
-		return;
-	}
-
-	const packagesWithSameVersions = Object.entries(packagesVersions)
-		.filter(([_, { usages, versions }]) => usages > 1 && versions.length === 1)
-		.map(([name, { versions }]) => ({
-			name: `${name} (${versions.join(", ")})`,
-			value: name,
-		}));
-
-	if (packagesWithSameVersions.length) {
-		console.info(
-			`The following packages are safe to use in catalog: ${packagesWithSameVersions.map(({ name }) => name).join(", ")}`,
-		);
-	}
-
-	const packagesWithDifferentVersions = Object.entries(packagesVersions)
-		.filter(([_, { usages, versions }]) => usages > 1 && versions.length > 1)
-		.map(([name, { versions }]) => ({
-			name: `${name} (${versions.join(", ")})`,
-			value: name,
-		}));
-
-	const { packagesToMergeVersion } = await question<{
-		packagesToMergeVersion: string[];
-	}>({
-		name: "packagesToMergeVersion",
-		type: "checkbox",
-		message: `The following packages have 2 or more different versions in workspace.
-Catalog supports only one version at a time for default configuration.
-Latest version will be picked for each package and used in catalog.
-By default all the packages are deselected.
-Select packages to merge versions:`,
-		choices: packagesWithDifferentVersions,
-		default: [],
-	});
-
-	const updateCatalog = Object.fromEntries(
-		Object.entries(packagesVersions)
-			.filter(
-				([name, { usages, versions }]) =>
-					usages > 1 &&
-					(versions.length === 1 || packagesToMergeVersion.includes(name)),
-			)
-			.map(([name, { versions }]) => [
-				name,
-				versions
-					.map((version) => ({
-						version: isAlias(version)
-							? version.replace(/^p?npm:(.+@)?/, "").replace(/[~\^]/g, "")
-							: version.replace(/[~\^]/g, ""),
-						original: version,
-					}))
-					.sort((a, b) => semver.compare(a.version, b.version))
-					.map(({ original }) => original)
-					.pop() as string,
-			]),
+	const packagesSelected = Object.entries(packagesVersions).filter(
+		([_, versions]) => versions.length === 1,
+	);
+	const packagesNotSelected = Object.entries(packagesVersions).filter(
+		([_, versions]) => versions.length > 1,
 	);
 
-	if (Object.keys(updateCatalog).length === 0) {
+	if (packagesSelected.length === 0) {
 		console.log("No packages selected for catalog");
 		return;
 	}
 
-	console.info(
-		`The following packages will be used in catalog: ${Object.entries(
-			updateCatalog,
-		)
-			.map(([name, version]) => `${name} (${version})`)
-			.join(", ")}`,
+	console.log(`The following packages were not selected to move to the catalog, because they have multiple versions in the workspace:
+${packagesNotSelected
+	.map(([name, versions]) => `${name} (${versions.join(", ")})`)
+	.join("\n")}
+`);
+
+	const updateCatalog = Object.fromEntries(
+		packagesSelected.map(([name, versions]) => [name, versions[0] as string]),
 	);
 
 	await workspaceFile.update<{ catalog: Record<string, string> }>(
@@ -171,14 +112,40 @@ Select packages to merge versions:`,
 		},
 	);
 
+	console.log(
+		`Added packages to catalog:
+  ${packagesSelected.map(([name, versions]) => `${name}@${versions[0]}`).join("\n  ")}
+`,
+	);
+
 	await packageJsonFiles.json().update<PackageJson>((packageJson) => {
-		for (const [name] of Object.entries(updateCatalog)) {
+		const updates = [] as string[];
+
+		for (const [name] of packagesSelected) {
 			if (packageJson.dependencies?.[name]) {
+				updates.push(
+					`dependencies.${name}@${packageJson.dependencies[name]} => catalog:`,
+				);
 				packageJson.dependencies[name] = "catalog:";
 			}
 			if (packageJson.devDependencies?.[name]) {
+				updates.push(
+					`devDependencies.${name}@${packageJson.devDependencies[name]} => catalog:`,
+				);
 				packageJson.devDependencies[name] = "catalog:";
 			}
+			if (packageJson.optionalDependencies?.[name]) {
+				updates.push(
+					`optionalDependencies.${name}@${packageJson.optionalDependencies[name]} => catalog:`,
+				);
+				packageJson.optionalDependencies[name] = "catalog:";
+			}
+		}
+
+		if (updates.length) {
+			console.log(`Updated ${packageJson.name}:
+  ${updates.join("\n  ")}
+`);
 		}
 
 		return packageJson;
@@ -191,10 +158,23 @@ Select packages to merge versions:`,
 				const version = packageJson.packageManager.match(/pnpm@(.*)/)?.[1];
 				if (version && semver.lt(version, "9.5.0")) {
 					packageJson.packageManager = "pnpm@9.5.0";
+					console.log("Updated package.json@packageManager to pnpm@9.5.0");
 				}
 			}
 			return packageJson;
 		});
 
 	await exec("pnpm", ["install"]);
+
+	console.log(`
+
+${packagesSelected.length} packages were safely moved to the catalog.
+
+${
+	packagesNotSelected.length
+		? `Packages not moved due to version differences: ${packagesNotSelected.length}
+`
+		: ""
+}
+Check the log for package details.`);
 }
