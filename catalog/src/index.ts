@@ -87,12 +87,6 @@ export async function workflow({ files, dirs, exec }: Api) {
 		return;
 	}
 
-	console.log(`The following packages were not selected to move to the catalog, because they have multiple versions in the workspace:
-${packagesNotSelected
-	.map(([name, versions]) => `${name} (${versions.join(", ")})`)
-	.join("\n")}
-`);
-
 	const updateCatalog = Object.fromEntries(
 		packagesSelected.map(([name, versions]) => [name, versions[0] as string]),
 	);
@@ -112,40 +106,18 @@ ${packagesNotSelected
 		},
 	);
 
-	console.log(
-		`Added packages to catalog:
-  ${packagesSelected.map(([name, versions]) => `${name}@${versions[0]}`).join("\n  ")}
-`,
-	);
-
 	await packageJsonFiles.json().update<PackageJson>((packageJson) => {
-		const updates = [] as string[];
 
 		for (const [name] of packagesSelected) {
 			if (packageJson.dependencies?.[name]) {
-				updates.push(
-					`dependencies.${name}@${packageJson.dependencies[name]} => catalog:`,
-				);
 				packageJson.dependencies[name] = "catalog:";
 			}
 			if (packageJson.devDependencies?.[name]) {
-				updates.push(
-					`devDependencies.${name}@${packageJson.devDependencies[name]} => catalog:`,
-				);
 				packageJson.devDependencies[name] = "catalog:";
 			}
 			if (packageJson.optionalDependencies?.[name]) {
-				updates.push(
-					`optionalDependencies.${name}@${packageJson.optionalDependencies[name]} => catalog:`,
-				);
 				packageJson.optionalDependencies[name] = "catalog:";
 			}
-		}
-
-		if (updates.length) {
-			console.log(`Updated ${packageJson.name}:
-  ${updates.join("\n  ")}
-`);
 		}
 
 		return packageJson;
@@ -158,7 +130,6 @@ ${packagesNotSelected
 				const version = packageJson.packageManager.match(/pnpm@(.*)/)?.[1];
 				if (version && semver.lt(version, "9.5.0")) {
 					packageJson.packageManager = "pnpm@9.5.0";
-					console.log("Updated package.json@packageManager to pnpm@9.5.0");
 				}
 			}
 			return packageJson;
