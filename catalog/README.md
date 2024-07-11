@@ -1,4 +1,4 @@
-# Migrate to [pnpm catalog](https://pnpm.io/catalogs)
+This codemod helps you migrate to [pnpm catalog](https://pnpm.io/catalogs):
 
 * Performs search across all packages in pnpm workspace.
 * If there are more than 2 packages with same dependency - it will move dependency to catalog.
