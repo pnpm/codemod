@@ -57,7 +57,7 @@ export async function workflow({ files, dirs, exec }: Api) {
 	const packagesVersions: PackagesVersions = {};
 
 	const packageJsonFiles = dirs({
-		dirs: workspaceConfig.packages,
+		dirs: [...workspaceConfig.packages, './'],
 		ignore: ["**/node_modules/**"],
 	}).files("package.json");
 
