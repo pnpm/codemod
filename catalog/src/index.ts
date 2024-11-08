@@ -1,7 +1,12 @@
 import type { Api } from "@codemod.com/workflow";
 import * as semver from "semver";
 
-type PackagesVersions = Record<string, string[]>;
+type PackagesVersions = Record<string, PackageUsage>;
+
+type PackageUsage = {
+	versions: string[];
+	dependents: string[];
+};
 
 type PackageJson = {
 	name: string;
@@ -21,6 +26,7 @@ const validRange = (version: string) => {
 
 const readDependencies = (
 	packagesVersions: PackagesVersions,
+	packageName: string,
 	dependencies: Record<string, string> = {},
 ) => {
 	for (const [name, version] of Object.entries(dependencies)) {
@@ -32,11 +38,15 @@ const readDependencies = (
 		}
 
 		if (!packagesVersions[name]) {
-			packagesVersions[name] = [];
+			packagesVersions[name] = { versions: [], dependents: [] };
 		}
 
-		if (!packagesVersions[name].includes(version)) {
-			packagesVersions[name].push(version);
+		if (!packagesVersions[name].versions.includes(version)) {
+			packagesVersions[name].versions.push(version);
+		}
+
+		if (!packagesVersions[name].dependents.includes(version)) {
+			packagesVersions[name].dependents.push(packageName);
 		}
 	}
 };
@@ -57,7 +67,7 @@ export async function workflow({ files, dirs, exec }: Api) {
 	const packagesVersions: PackagesVersions = {};
 
 	const packageJsonFiles = dirs({
-		dirs: [...workspaceConfig.packages, './'],
+		dirs: [...workspaceConfig.packages, "./"],
 		ignore: ["**/node_modules/**"],
 	}).files("package.json");
 
@@ -70,16 +80,30 @@ export async function workflow({ files, dirs, exec }: Api) {
 			return;
 		}
 
-		readDependencies(packagesVersions, packageJson.dependencies);
-		readDependencies(packagesVersions, packageJson.devDependencies);
-		readDependencies(packagesVersions, packageJson.optionalDependencies);
+		readDependencies(
+			packagesVersions,
+			packageJson.name,
+			packageJson.dependencies,
+		);
+		readDependencies(
+			packagesVersions,
+			packageJson.name,
+			packageJson.devDependencies,
+		);
+		readDependencies(
+			packagesVersions,
+			packageJson.name,
+			packageJson.optionalDependencies,
+		);
 	});
 
 	const packagesSelected = Object.entries(packagesVersions).filter(
-		([_, versions]) => versions.length === 1,
+		([_, { versions, dependents }]) =>
+			versions.length === 1 && dependents.length > 1,
 	);
 	const packagesNotSelected = Object.entries(packagesVersions).filter(
-		([_, versions]) => versions.length > 1,
+		([_, { versions, dependents }]) =>
+			versions.length > 1 || dependents.length <= 1,
 	);
 
 	if (packagesSelected.length === 0) {
@@ -88,7 +112,10 @@ export async function workflow({ files, dirs, exec }: Api) {
 	}
 
 	const updateCatalog = Object.fromEntries(
-		packagesSelected.map(([name, versions]) => [name, versions[0] as string]),
+		packagesSelected.map(([name, { versions }]) => [
+			name,
+			versions[0] as string,
+		]),
 	);
 
 	await workspaceFile.update<{ catalog: Record<string, string> }>(
@@ -107,7 +134,6 @@ export async function workflow({ files, dirs, exec }: Api) {
 	);
 
 	await packageJsonFiles.json().update<PackageJson>((packageJson) => {
-
 		for (const [name] of packagesSelected) {
 			if (packageJson.dependencies?.[name]) {
 				packageJson.dependencies[name] = "catalog:";
@@ -143,7 +169,7 @@ ${packagesSelected.length} packages were safely moved to the catalog.
 
 ${
 	packagesNotSelected.length
-		? `Packages not moved due to version differences: ${packagesNotSelected.length}
+		? `Packages not moved: ${packagesNotSelected.length}
 `
 		: ""
 }`);
