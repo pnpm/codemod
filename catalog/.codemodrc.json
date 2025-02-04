@@ -1,12 +1,16 @@
 {
-	"$schema": "https://codemod-utils.s3.us-west-1.amazonaws.com/configuration_schema.json",
-	"name": "pnpm/catalog",
-	"version": "1.0.6",
-	"engine": "workflow",
-	"private": false,
-	"arguments": [],
-	"meta": {
-		"tags": ["pnpm", "9.5", "catalog"],
-		"git": "https://github.com/pnpm/codemod/tree/main/catalog"
-	}
+  "$schema": "https://codemod-utils.s3.us-west-1.amazonaws.com/configuration_schema.json",
+  "name": "pnpm/catalog",
+  "version": "1.0.7",
+  "engine": "workflow",
+  "private": false,
+  "arguments": [],
+  "meta": {
+    "tags": [
+      "pnpm",
+      "9.5",
+      "catalog"
+    ],
+    "git": "https://github.com/pnpm/codemod/tree/main/catalog"
+  }
 }
