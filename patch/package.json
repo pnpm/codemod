@@ -1,0 +1,12 @@
+{
+	"name": "pnpm-codemod-patch-convert",
+  "private": true,
+	"license": "MIT",
+	"devDependencies": {
+		"@codemod.com/workflow": "^0.0.19",
+		"@types/node": "20.9.0",
+		"typescript": "^5.2.2"
+	},
+	"files": ["README.md", ".codemodrc.json", "/dist/index.cjs"],
+	"type": "module"
+}

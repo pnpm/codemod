@@ -1,0 +1,17 @@
+{
+  "$schema": "https://codemod-utils.s3.us-west-1.amazonaws.com/configuration_schema.json",
+  "name": "pnpm/patch-convert",
+  "version": "1.0.7",
+  "engine": "workflow",
+  "private": false,
+  "arguments": [],
+  "meta": {
+    "tags": [
+      "pnpm",
+      "9.5",
+      "patch",
+      "convert"
+    ],
+    "git": "https://github.com/pnpm/codemod/tree/main/patch"
+  }
+}
