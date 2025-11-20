@@ -4,5 +4,8 @@
 	"packageManager": "pnpm@9.5.0",
 	"devDependencies": {
 		"@biomejs/biome": "^1.8.3"
+	},
+	"scripts": {
+		"startRun": "pnpm -C patch startRun"
 	}
 }

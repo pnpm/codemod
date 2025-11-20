@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/codemod/codemod/refs/heads/main/schemas/workflow.json
+
+version: "1"
+
+nodes:
+  - id: apply-transforms
+    name: Apply Patch-Package to PNPM Transformations
+    type: automatic
+    steps:
+      - name: "Convert patch files and update configuration"
+        js-ast-grep:
+          js_file: src/codemod.ts
+          base_path: "."
+          language: "json"
+          include:
+            - "**/*.patch"
+            - "**/package.json"
+            - "**/pnpm-workspace.yaml"
+          exclude:
+            - "**/node_modules/**"
+            - "**/.git/**"
+      # - name: "Clean up old patch-package format files"
+      #   run: |
+      #     find . -name "*.patch" -type f -not -path "*/node_modules/*" -not -path "*/.git/*" | grep -E '\+' | xargs rm -f || true
+      # - name: "Run pnpm install to apply patches"
+      #   run: |
+      #     if [ -f "pnpm-lock.yaml" ] || [ -f "pnpm-workspace.yaml" ] || grep -q '"packageManager".*"pnpm"' package.json 2>/dev/null; then
+      #       pnpm install
+      #     else
+      #       echo "Skipping pnpm install: Project does not use pnpm (no pnpm-lock.yaml, pnpm-workspace.yaml, or pnpm packageManager found)"
+      #     fi

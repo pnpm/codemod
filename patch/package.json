@@ -1,12 +1,17 @@
 {
-	"name": "pnpm-codemod-patch-convert",
-  "private": true,
-	"license": "MIT",
+	"name": "patch-package-to-pnpm",
+	"version": "0.1.0",
+	"description": "Transform legacy code patterns",
+	"type": "module",
 	"devDependencies": {
-		"@codemod.com/workflow": "^0.0.19",
+		"@codemod.com/jssg-types": "^1.0.9",
 		"@types/node": "20.9.0",
-		"typescript": "^5.2.2"
+		"typescript": "^5.8.3"
 	},
-	"files": ["README.md", ".codemodrc.json", "/dist/index.cjs"],
-	"type": "module"
+	"scripts": {
+		"validate": "pnpx codemod workflow validate -w workflow.yaml",
+		"startRun": "pnpx codemod workflow run -w workflow.yaml --dry-run",
+		"test": "pnpx codemod@latest jssg test -l typescript ./src/codemod.ts",
+		"check-types": "tsc --noEmit"
+	}
 }
