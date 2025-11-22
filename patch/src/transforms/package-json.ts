@@ -28,7 +28,7 @@ export async function transformPackageJson(
   }
   
   if (!packageJson.pnpm) {
-		return null;
+    return null;
   }
   if (!packageJson.pnpm.patchedDependencies) {
     packageJson.pnpm.patchedDependencies = {};
