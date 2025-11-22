@@ -13,6 +13,9 @@ function generateReplacePattern (patchFilePath: string): string {
 function convertPatchNameToPnpmFormat (patchFileName: string): string {
   const parts = patchFileName.split('+')
   const version = parts.pop()
+  if (!version) {  
+    throw new Error(`Invalid patch file name: "${patchFileName}". Expected a "+" separator and a version.`);  
+  }  
   return `${parts.join('__')}@${version}`
 }
 

@@ -37,7 +37,7 @@ export async function findWorkspaceRoot(filePath: string): Promise<string> {
   return lastPackageJsonDir;
 }
 
-export async function findPatchesDirectory(root: string) {
+export async function findPatchesDirectory(root: string): Promise<string> {
   const packageJsonPath = normalizePath(join(root, PACKAGE_JSON_FILE));
   const content = await readFile(packageJsonPath, "utf-8");
   const packageJson = JSON.parse(content) as PackageJson;
