@@ -2,8 +2,7 @@
 import type { SgRoot } from "codemod:ast-grep";
 import type JSON from "codemod:ast-grep/langs/json";
 import { writeFile, rm } from "fs/promises";
-import { basename } from "path";
-import { findWorkspaceRoot } from "../utils/path.ts";
+import { basename, join, dirname } from "path";
 
 function generateReplacePattern (patchFilePath: string): string {
   const baseName = basename(patchFilePath)
@@ -28,8 +27,6 @@ function needsConversion (content: string): boolean {
 
 export async function transformPatchFile(root: SgRoot<JSON>): Promise<string | null> {
   const fileName = root.filename();
-  const workspaceRoot = await findWorkspaceRoot(fileName);
-  console.log(`Workspace root for patch file: ${workspaceRoot}`);
   const content = root.root().text();
   
   if (!needsConversion(content)) {
@@ -38,9 +35,9 @@ export async function transformPatchFile(root: SgRoot<JSON>): Promise<string | n
   
   const replacePattern = generateReplacePattern(fileName)
 	const convertedContent = content.replace(new RegExp(replacePattern, 'g'), '')
-	const outputPath = convertPatchNameToPnpmFormat(fileName)
+	const outputPath = convertPatchNameToPnpmFormat(basename(fileName))
 	
-	await writeFile(outputPath, convertedContent, 'utf-8')
+	await writeFile(join(dirname(fileName), outputPath), convertedContent, 'utf-8')
   await rm(fileName)
 
 	return convertedContent

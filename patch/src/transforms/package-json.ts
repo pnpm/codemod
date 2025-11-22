@@ -2,20 +2,8 @@ import type { SgNode, SgRoot } from "codemod:ast-grep";
 import type JSON from "codemod:ast-grep/langs/json";
 import { normalizePath } from "../utils/path.ts";
 import { findPatchesDirectory, scanForConvertedPatches } from "../scanners/patch-scanner.ts";
+import type { PackageJson } from "../types.ts";
 
-export interface PatchedDependencies {
-  [key: string]: string;
-}
-export interface PnpmConfig {
-  patchedDependencies?: PatchedDependencies;
-  [key: string]: unknown;
-}
-export interface PackageJson {
-  name?: string;
-  version?: string;
-  pnpm?: PnpmConfig;
-  [key: string]: unknown;
-}
 
 export async function transformPackageJson(
   rootNode: SgNode<JSON>,
