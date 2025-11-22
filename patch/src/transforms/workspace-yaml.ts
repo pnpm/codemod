@@ -1,10 +1,10 @@
 import type { SgRoot } from "codemod:ast-grep";
-import type JSON from "codemod:ast-grep/langs/json";
+import type YAML from "codemod:ast-grep/langs/yaml";
 import { YAML_PATTERNS } from "../constants.ts";
 import { normalizePath } from "../utils/path.ts";
 import { findPatchesDirectory, scanForConvertedPatches } from "../scanners/patch-scanner.ts";
 
-export async function transformWorkspaceYaml(root: SgRoot<JSON>): Promise<string | null> {
+export async function transformWorkspaceYaml(root: SgRoot<YAML>): Promise<string | null> {
   const fileName = root.filename();
   const content = root.root().text();
   
