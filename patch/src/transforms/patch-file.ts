@@ -37,9 +37,14 @@ export async function transformPatchFile(root: SgRoot<JSON>): Promise<string | n
 	const convertedContent = content.replace(new RegExp(replacePattern, 'g'), '')
 	const outputPath = convertPatchNameToPnpmFormat(basename(fileName))
 	
-	await writeFile(join(dirname(fileName), outputPath), convertedContent, 'utf-8')
-  await rm(fileName)
+  try {
+    await writeFile(join(dirname(fileName), outputPath), convertedContent, 'utf-8');
+    await rm(fileName);
+  } catch (err) {
+    console.error("Error during patch file transformation:", err);
+    return null;
+  }
 
-	return convertedContent
+  return convertedContent
 }
 
