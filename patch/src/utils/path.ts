@@ -38,7 +38,6 @@ export async function findWorkspaceRoot(filePath: string): Promise<string> {
 }
 
 export async function findPatchesDirectory(root: string) {
-  console.log('Finding patches directory in workspace root:', process.cwd());
   const packageJsonPath = normalizePath(join(root, PACKAGE_JSON_FILE));
   const content = await readFile(packageJsonPath, "utf-8");
   const packageJson = JSON.parse(content) as PackageJson;
@@ -53,7 +52,7 @@ export async function findPatchesDirectory(root: string) {
       if (match?.[1]) {
         patchesDir = match[1];
       }
-    } catch (err) {
+    } catch {
       // If the workspace YAML file does not exist or is unreadable, ignore and use default patchesDir
     }
   }
