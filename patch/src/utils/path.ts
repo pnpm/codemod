@@ -47,10 +47,14 @@ export async function findPatchesDirectory(root: string) {
     patchesDir = packageJson.pnpm.patchesDir as string;
   } else {
     const workspaceYamlPath = normalizePath(join(root, WORKSPACE_YAML_FILE));
-    const workspaceContent = await readFile(workspaceYamlPath, "utf-8");
-    const match = workspaceContent.match(/patchesDir:\s*(\S+)/);
-    if (match?.[1]) {
-      patchesDir = match[1];
+    try {
+      const workspaceContent = await readFile(workspaceYamlPath, "utf-8");
+      const match = workspaceContent.match(/patchesDir:\s*(\S+)/);
+      if (match?.[1]) {
+        patchesDir = match[1];
+      }
+    } catch (err) {
+      // If the workspace YAML file does not exist or is unreadable, ignore and use default patchesDir
     }
   }
   return patchesDir;
