@@ -1,0 +1,22 @@
+schema_version: "1.0"
+
+name: "patch-package-to-pnpm"
+version: "0.1.0"
+description: "Converts patch-package patches to pnpm format by removing node_modules/ prefixes from patch file content and updating package.json/pnpm-workspace.yaml configuration."
+author: "Alex Bit <alex@codemod.com>, btea"
+license: "MIT"
+workflow: "workflow.yaml"
+
+
+targets:
+  languages: ["json", "yaml"]
+
+keywords: ["pnpm", "migration"]
+
+registry:
+  access: "public"
+  visibility: "public"
+
+capabilities:
+  - fs
+  - path

@@ -1,0 +1,53 @@
+
+import type { SgRoot } from "codemod:ast-grep";
+import type JSON from "codemod:ast-grep/langs/json";
+import { writeFile, rm } from "fs/promises";
+import { basename, join, dirname } from "path";
+
+function generateReplacePattern (patchFilePath: string): string {
+  const baseName = basename(patchFilePath)
+  const packageInfo = baseName.split('+').slice(0, -1).join('/')
+  return `/node_modules/${packageInfo}`.replace(/\\/g, '/')
+}
+
+function convertPatchNameToPnpmFormat (patchFileName: string): string {
+  const parts = patchFileName.split('+')
+  const version = parts.pop()
+  if (!version) {  
+    throw new Error(`Invalid patch file name: "${patchFileName}". Expected a "+" separator and a version.`);  
+  }  
+  return `${parts.join('__')}@${version}`
+}
+
+const NODE_MODULES_PATTERNS = [
+  'diff --git a/node_modules/',
+  '--- a/node_modules/',
+  '+++ b/node_modules/',
+] as const
+function needsConversion (content: string): boolean {
+  return NODE_MODULES_PATTERNS.some(pattern => content.includes(pattern))
+}
+
+export async function transformPatchFile(root: SgRoot<JSON>): Promise<string | null> {
+  const fileName = root.filename();
+  const content = root.root().text();
+  
+  if (!needsConversion(content)) {
+    return null; // Skip if no conversion needed
+  }
+  
+  const replacePattern = generateReplacePattern(fileName)
+	const convertedContent = content.replace(new RegExp(replacePattern, 'g'), '')
+	const outputPath = convertPatchNameToPnpmFormat(basename(fileName))
+	
+  try {
+    await writeFile(join(dirname(fileName), outputPath), convertedContent, 'utf-8');
+    await rm(fileName);
+  } catch (err) {
+    console.error("Error during patch file transformation:", err);
+    return null;
+  }
+
+  return convertedContent
+}
+
