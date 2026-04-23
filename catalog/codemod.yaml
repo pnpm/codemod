@@ -3,6 +3,7 @@ schema_version: "1.0"
 name: "pnpm/catalog"
 version: "1.0.7"
 description: "Migrate a pnpm workspace to use the catalog feature."
+author: "Zoltan Kochan <z@kochan.io>"
 license: "MIT"
 workflow: "workflow.yaml"
 
