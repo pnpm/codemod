@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import type { Api } from "@codemod.com/workflow";
 import * as semver from "semver";
 import {
+	type DevEnginesRuntime,
 	type MigrationWarning,
 	type PnpmSettings,
 	applyMigrations,
@@ -14,6 +15,7 @@ type PackageJson = {
 	name?: string;
 	packageManager?: string;
 	pnpm?: PnpmSettings;
+	devEngines?: { runtime?: DevEnginesRuntime; [key: string]: unknown };
 	[key: string]: unknown;
 };
 
@@ -64,6 +66,7 @@ export async function workflow({ files }: Api) {
 	}
 
 	const collectedWarnings: MigrationWarning[] = [];
+	let devEnginesRuntime: DevEnginesRuntime | undefined;
 
 	if (workspaceYamlExists || hasPnpmSettingsInPackageJson) {
 		await files("pnpm-workspace.yaml")
@@ -79,7 +82,11 @@ export async function workflow({ files }: Api) {
 					}
 				}
 
-				collectedWarnings.push(...applyMigrations(next, workspaceYamlPath));
+				const result = applyMigrations(next, workspaceYamlPath);
+				collectedWarnings.push(...result.warnings);
+				if (result.devEnginesRuntime) {
+					devEnginesRuntime = result.devEnginesRuntime;
+				}
 				return next;
 			});
 	}
@@ -95,6 +102,21 @@ export async function workflow({ files }: Api) {
 				const bumped = bumpPackageManager(packageJson.packageManager);
 				if (bumped) {
 					packageJson.packageManager = bumped;
+				}
+			}
+			if (devEnginesRuntime) {
+				const existingRuntime = packageJson.devEngines?.runtime;
+				if (existingRuntime) {
+					collectedWarnings.push(
+						`devEngines.runtime is already set (${JSON.stringify(
+							existingRuntime,
+						)}); useNodeVersion=${devEnginesRuntime.version} was not applied. Resolve the conflict manually.`,
+					);
+				} else {
+					packageJson.devEngines = {
+						...packageJson.devEngines,
+						runtime: devEnginesRuntime,
+					};
 				}
 			}
 			return packageJson;

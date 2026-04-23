@@ -38,6 +38,7 @@ The `ignoreDepScripts` setting has no equivalent — the codemod removes it and 
 
 - `allowNonAppliedPatches` → `allowUnusedPatches`
 - `auditConfig.ignoreCves` → `auditConfig.ignoreGhsas` (the key is renamed; the codemod prints a warning that each CVE id needs to be replaced with the corresponding GHSA id manually)
+- `useNodeVersion` → `devEngines.runtime` in the root `package.json` (populated as `{ name: "node", version: "<value>" }`; if `devEngines.runtime` is already set, the conflict is reported as a warning and left untouched)
 
 ### Removes
 
@@ -52,7 +53,7 @@ If the root `package.json` pins pnpm below v11 via `packageManager`, it is bumpe
 The following v11 changes require human judgement and are only reported as warnings:
 
 - Non-auth/registry settings in `.npmrc` are no longer read. Move them to `pnpm-workspace.yaml` or `~/.config/pnpm/config.yaml` manually.
-- `useNodeVersion` / `executionEnv.nodeVersion` have been removed. Declare the runtime in `devEngines.runtime` in `package.json` instead.
+- `executionEnv.nodeVersion` in workspace subpackages. Declare `devEngines.runtime` in that subpackage's `package.json` instead.
 - `npm_config_*` environment variables are no longer read. Rename them to `pnpm_config_*`.
 - `pnpm link <pkg-name>` no longer resolves from the global store — use a relative or absolute path.
 - `pnpm install -g` (with no args) is no longer supported — use `pnpm add -g <pkg>`.

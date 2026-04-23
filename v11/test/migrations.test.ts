@@ -11,8 +11,8 @@ const migrate = (
 	settings: PnpmSettings,
 	settingsFilePath = FAKE_WORKSPACE_PATH,
 ) => {
-	const warnings = applyMigrations(settings, settingsFilePath);
-	return { settings, warnings };
+	const result = applyMigrations(settings, settingsFilePath);
+	return { settings, ...result };
 };
 
 describe("allowBuilds consolidation", () => {
@@ -175,12 +175,23 @@ describe("renames and removals", () => {
 		assert.match(warnings[0] as string, /ignorePatchFailures/);
 	});
 
-	test("useNodeVersion is removed with a warning including the previous value", () => {
-		const { settings, warnings } = migrate({ useNodeVersion: "20.11.1" });
+	test("useNodeVersion is converted to devEnginesRuntime and removed", () => {
+		const { settings, warnings, devEnginesRuntime } = migrate({
+			useNodeVersion: "20.11.1",
+		});
 		assert.ok(!("useNodeVersion" in settings));
+		assert.deepEqual(devEnginesRuntime, { name: "node", version: "20.11.1" });
+		assert.equal(warnings.length, 0);
+	});
+
+	test("useNodeVersion with a non-string value emits a warning", () => {
+		const { settings, warnings, devEnginesRuntime } = migrate({
+			useNodeVersion: 20,
+		});
+		assert.ok(!("useNodeVersion" in settings));
+		assert.equal(devEnginesRuntime, undefined);
 		assert.equal(warnings.length, 1);
 		assert.match(warnings[0] as string, /useNodeVersion/);
-		assert.match(warnings[0] as string, /20\.11\.1/);
 	});
 
 	test("auditConfig.ignoreCves is renamed to ignoreGhsas with a warning", () => {
@@ -205,7 +216,7 @@ describe("renames and removals", () => {
 
 describe("end-to-end", () => {
 	test("full v10 manifest migrates cleanly with expected warnings", () => {
-		const { settings, warnings } = migrate({
+		const { settings, warnings, devEnginesRuntime } = migrate({
 			onlyBuiltDependencies: ["electron"],
 			neverBuiltDependencies: ["core-js"],
 			ignoredBuiltDependencies: ["esbuild"],
@@ -224,11 +235,12 @@ describe("end-to-end", () => {
 			auditConfig: { ignoreGhsas: ["CVE-2024-1234"] },
 			patchedDependencies: { "foo@1.0.0": "patches/foo.patch" },
 		});
-		assert.equal(warnings.length, 3);
+		assert.deepEqual(devEnginesRuntime, { name: "node", version: "20.11.1" });
+		assert.equal(warnings.length, 2);
 	});
 
 	test("unrelated settings are left alone", () => {
-		const { settings, warnings } = migrate({
+		const { settings, warnings, devEnginesRuntime } = migrate({
 			catalog: { react: "^18.0.0" },
 			packages: ["apps/*"],
 		});
@@ -237,5 +249,6 @@ describe("end-to-end", () => {
 			packages: ["apps/*"],
 		});
 		assert.equal(warnings.length, 0);
+		assert.equal(devEnginesRuntime, undefined);
 	});
 });

@@ -11,6 +11,16 @@ type AuditConfig = {
 
 export type MigrationWarning = string;
 
+export type DevEnginesRuntime = {
+	name: string;
+	version: string;
+};
+
+export type MigrationResult = {
+	warnings: MigrationWarning[];
+	devEnginesRuntime?: DevEnginesRuntime;
+};
+
 const removeKeys = (obj: Record<string, unknown>, ...keys: string[]): void => {
 	for (const key of keys) {
 		delete obj[key];
@@ -128,7 +138,7 @@ const migratePmOnFail = (settings: PnpmSettings): void => {
 
 const migrateRenames = (
 	settings: PnpmSettings,
-	warnings: MigrationWarning[],
+	result: MigrationResult,
 ): void => {
 	if ("allowNonAppliedPatches" in settings) {
 		if (!("allowUnusedPatches" in settings)) {
@@ -138,7 +148,7 @@ const migrateRenames = (
 	}
 
 	if ("ignorePatchFailures" in settings) {
-		warnings.push(
+		result.warnings.push(
 			`"ignorePatchFailures" has been removed in v11. Failed patches now always throw.`,
 		);
 		removeKeys(settings, "ignorePatchFailures");
@@ -150,18 +160,23 @@ const migrateRenames = (
 		removeKeys(audit, "ignoreCves");
 		if (Array.isArray(cves) && cves.length > 0) {
 			audit.ignoreGhsas = cves;
-			warnings.push(
+			result.warnings.push(
 				"auditConfig.ignoreCves was renamed to auditConfig.ignoreGhsas. Replace each CVE-YYYY-NNNNN entry with the matching GHSA-xxxx-xxxx-xxxx id.",
 			);
 		}
 	}
 
 	if ("useNodeVersion" in settings) {
-		warnings.push(
-			`"useNodeVersion" has been removed in v11. Declare the runtime via devEngines.runtime in package.json instead. Previous value: ${JSON.stringify(
-				settings.useNodeVersion,
-			)}.`,
-		);
+		const value = settings.useNodeVersion;
+		if (typeof value === "string" && value.length > 0) {
+			result.devEnginesRuntime = { name: "node", version: value };
+		} else {
+			result.warnings.push(
+				`"useNodeVersion" has been removed in v11 and could not be auto-migrated from value ${JSON.stringify(
+					value,
+				)}. Declare devEngines.runtime in package.json manually.`,
+			);
+		}
 		removeKeys(settings, "useNodeVersion");
 	}
 };
@@ -169,10 +184,10 @@ const migrateRenames = (
 export const applyMigrations = (
 	settings: PnpmSettings,
 	settingsFilePath: string,
-): MigrationWarning[] => {
-	const warnings: MigrationWarning[] = [];
-	migrateAllowBuilds(settings, settingsFilePath, warnings);
+): MigrationResult => {
+	const result: MigrationResult = { warnings: [] };
+	migrateAllowBuilds(settings, settingsFilePath, result.warnings);
 	migratePmOnFail(settings);
-	migrateRenames(settings, warnings);
-	return warnings;
+	migrateRenames(settings, result);
+	return result;
 };
