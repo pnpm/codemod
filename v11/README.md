@@ -12,6 +12,16 @@ The codemod runs against the workspace root (and every package when a `pnpm-work
 
 In v11, pnpm no longer reads settings from the `pnpm` field of `package.json`. Every known setting under `pnpm.*` is moved to the top level of `pnpm-workspace.yaml`. If `pnpm-workspace.yaml` does not exist, it is created.
 
+### Splits `.npmrc` into auth/registry vs. everything else
+
+In v11, only auth and registry settings are read from `.npmrc`. For the root `.npmrc` and every workspace subproject `.npmrc`, the codemod:
+
+- Keeps auth, token, and registry lines (`registry`, `@scope:registry`, `//host/:_authToken`, `email`, `cafile`, etc.) in `.npmrc`.
+- Moves every other setting out, converting the key to camelCase (`hoist-pattern[]` → `hoistPattern`, `save-exact` → `saveExact`, and so on) and typing the value (`true`/`false`/number/string).
+- Root-level migrated settings land at the top of `pnpm-workspace.yaml`.
+- Subproject migrated settings land under `packageConfigs["<project-name>"]` in the root `pnpm-workspace.yaml`, keyed by the subproject's `package.json#name`.
+- Deletes the `.npmrc` file if nothing was left to keep.
+
 ### Consolidates build-dependency settings into `allowBuilds`
 
 The following settings are removed in v11 and merged into a single `allowBuilds` map:
@@ -52,7 +62,6 @@ If the root `package.json` pins pnpm below v11 via `packageManager`, it is bumpe
 
 The following v11 changes require human judgement and are only reported as warnings:
 
-- Non-auth/registry settings in `.npmrc` are no longer read. Move them to `pnpm-workspace.yaml` or `~/.config/pnpm/config.yaml` manually.
 - `executionEnv.nodeVersion` in workspace subpackages. Declare `devEngines.runtime` in that subpackage's `package.json` instead.
 - `npm_config_*` environment variables are no longer read. Rename them to `pnpm_config_*`.
 - `pnpm link <pkg-name>` no longer resolves from the global store — use a relative or absolute path.

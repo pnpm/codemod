@@ -1,6 +1,7 @@
-import { existsSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import type { Api } from "@codemod.com/workflow";
+import { globSync } from "glob";
 import * as semver from "semver";
 import {
 	type DevEnginesRuntime,
@@ -8,6 +9,7 @@ import {
 	type PnpmSettings,
 	applyMigrations,
 } from "./migrations.js";
+import { parseNpmrc, serializeNpmrc } from "./npmrc.js";
 
 const PNPM_V11_VERSION = "11.0.0-rc.5";
 
@@ -17,6 +19,13 @@ type PackageJson = {
 	pnpm?: PnpmSettings;
 	devEngines?: { runtime?: DevEnginesRuntime; [key: string]: unknown };
 	[key: string]: unknown;
+};
+
+type SubprojectNpmrc = {
+	name: string;
+	npmrcPath: string;
+	linesToKeep: string[];
+	migratedSettings: PnpmSettings;
 };
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
@@ -30,6 +39,64 @@ const bumpPackageManager = (packageManager: string): string | null => {
 	if (!coerced) return null;
 	if (semver.gte(coerced, "11.0.0")) return null;
 	return `pnpm@${PNPM_V11_VERSION}`;
+};
+
+const writeOrDeleteNpmrc = (npmrcPath: string, linesToKeep: string[]) => {
+	const serialized = serializeNpmrc(linesToKeep);
+	if (serialized === null) {
+		rmSync(npmrcPath, { force: true });
+	} else {
+		writeFileSync(npmrcPath, serialized);
+	}
+};
+
+const collectSubprojectNpmrc = (
+	cwd: string,
+	workspacePackages: string[],
+): SubprojectNpmrc[] => {
+	const results: SubprojectNpmrc[] = [];
+
+	const includes = workspacePackages.filter((p) => !p.startsWith("!"));
+	const excludes = workspacePackages
+		.filter((p) => p.startsWith("!"))
+		.map((p) => p.slice(1));
+
+	const matchedDirs = globSync(includes, {
+		cwd,
+		ignore: ["**/node_modules/**", ...excludes],
+		absolute: true,
+	});
+
+	for (const dir of matchedDirs) {
+		const npmrcPath = join(dir, ".npmrc");
+		const packageJsonPath = join(dir, "package.json");
+		if (!existsSync(npmrcPath) || !existsSync(packageJsonPath)) continue;
+
+		let packageName: string | undefined;
+		try {
+			const parsed = JSON.parse(
+				readFileSync(packageJsonPath, "utf8"),
+			) as PackageJson;
+			packageName = parsed.name;
+		} catch {
+			continue;
+		}
+		if (!packageName) continue;
+
+		const { linesToKeep, migratedSettings } = parseNpmrc(
+			readFileSync(npmrcPath, "utf8"),
+		);
+		if (Object.keys(migratedSettings).length === 0) continue;
+
+		results.push({
+			name: packageName,
+			npmrcPath,
+			linesToKeep,
+			migratedSettings,
+		});
+	}
+
+	return results;
 };
 
 export async function workflow({ files }: Api) {
@@ -58,17 +125,42 @@ export async function workflow({ files }: Api) {
 		Object.keys(pnpmSettingsToMigrate).length > 0;
 	const workspaceYamlExists = existsSync(workspaceYamlPath);
 
+	// Read the workspace `packages:` list BEFORE the yaml update, so we can
+	// enumerate subproject `.npmrc` files.
+	let workspacePackages: string[] = [];
+	if (workspaceYamlExists) {
+		const existing = (
+			await files("pnpm-workspace.yaml")
+				.yaml()
+				.map(({ getContents }) => getContents<{ packages?: string[] }>())
+		).pop();
+		workspacePackages = Array.isArray(existing?.packages)
+			? (existing?.packages as string[])
+			: [];
+	}
+
+	const rootNpmrc = existsSync(npmrcPath)
+		? parseNpmrc(readFileSync(npmrcPath, "utf8"))
+		: null;
+
+	const subprojectNpmrcs = collectSubprojectNpmrc(cwd, workspacePackages);
+
+	const needsWorkspaceYaml =
+		workspaceYamlExists ||
+		hasPnpmSettingsInPackageJson ||
+		(rootNpmrc && Object.keys(rootNpmrc.migratedSettings).length > 0) ||
+		subprojectNpmrcs.length > 0;
+
 	// The workflow YAML API only operates on files that already exist. When the
-	// project has pnpm settings to migrate but no workspace manifest yet, create
-	// an empty one so the subsequent update() has something to write to.
-	if (!workspaceYamlExists && hasPnpmSettingsInPackageJson) {
+	// project has migratable input but no workspace manifest yet, create one.
+	if (!workspaceYamlExists && needsWorkspaceYaml) {
 		writeFileSync(workspaceYamlPath, "");
 	}
 
 	const collectedWarnings: MigrationWarning[] = [];
 	let devEnginesRuntime: DevEnginesRuntime | undefined;
 
-	if (workspaceYamlExists || hasPnpmSettingsInPackageJson) {
+	if (needsWorkspaceYaml) {
 		await files("pnpm-workspace.yaml")
 			.yaml()
 			.update<Record<string, unknown>>((current) => {
@@ -80,6 +172,42 @@ export async function workflow({ files }: Api) {
 					if (!(key in next)) {
 						next[key] = value;
 					}
+				}
+
+				if (rootNpmrc) {
+					for (const [key, value] of Object.entries(
+						rootNpmrc.migratedSettings,
+					)) {
+						if (!(key in next)) {
+							next[key] = value;
+						}
+					}
+				}
+
+				if (subprojectNpmrcs.length > 0) {
+					const existingPackageConfigs = isPlainObject(next.packageConfigs)
+						? (next.packageConfigs as Record<string, unknown>)
+						: {};
+					const packageConfigs: Record<string, unknown> = {
+						...existingPackageConfigs,
+					};
+					for (const { name, migratedSettings } of subprojectNpmrcs) {
+						const existing = isPlainObject(packageConfigs[name])
+							? (packageConfigs[name] as Record<string, unknown>)
+							: {};
+						const merged = { ...existing };
+						for (const [k, v] of Object.entries(migratedSettings)) {
+							if (!(k in merged)) merged[k] = v;
+						}
+						const subResult = applyMigrations(merged, workspaceYamlPath);
+						collectedWarnings.push(
+							...subResult.warnings.map(
+								(w) => `(packageConfigs["${name}"]) ${w}`,
+							),
+						);
+						packageConfigs[name] = merged;
+					}
+					next.packageConfigs = packageConfigs;
 				}
 
 				const result = applyMigrations(next, workspaceYamlPath);
@@ -122,10 +250,11 @@ export async function workflow({ files }: Api) {
 			return packageJson;
 		});
 
-	if (existsSync(npmrcPath)) {
-		collectedWarnings.push(
-			".npmrc exists. In v11 only auth/registry settings are read from .npmrc — move any other pnpm settings (hoistPattern, nodeLinker, shamefullyHoist, etc.) to pnpm-workspace.yaml.",
-		);
+	if (rootNpmrc) {
+		writeOrDeleteNpmrc(npmrcPath, rootNpmrc.linesToKeep);
+	}
+	for (const { npmrcPath: subPath, linesToKeep } of subprojectNpmrcs) {
+		writeOrDeleteNpmrc(subPath, linesToKeep);
 	}
 
 	if (collectedWarnings.length > 0) {
