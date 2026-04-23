@@ -1,176 +1,203 @@
-import type { Api } from "@codemod.com/workflow";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { globSync } from "glob";
 import * as semver from "semver";
+import * as YAML from "yaml";
 
-type PackagesVersions = Record<string, PackageUsage>;
+// `Map` is used instead of a plain object so that dependency names coming
+// from user-controlled `package.json` files cannot trigger prototype
+// pollution (e.g. a `__proto__` entry would only land in Map storage).
+type PackagesVersions = Map<string, PackageUsage>;
 
 type PackageUsage = {
 	versions: string[];
 	dependents: string[];
 };
 
+const UNSAFE_KEYS: ReadonlySet<string> = new Set([
+	"__proto__",
+	"constructor",
+	"prototype",
+]);
+
 type PackageJson = {
-	name: string;
+	name?: string;
 	packageManager?: string;
 	dependencies?: Record<string, string>;
 	devDependencies?: Record<string, string>;
 	optionalDependencies?: Record<string, string>;
 };
 
-const isAlias = (version: string) => {
-	return version.match(/^npm:/)?.length === 1;
+type WorkspaceYaml = {
+	packages?: string[];
+	catalog?: Record<string, string>;
+	[key: string]: unknown;
 };
 
-const validRange = (version: string) => {
-	return semver.validRange(version) !== null;
-};
+const DEPENDENCY_FIELDS = [
+	"dependencies",
+	"devDependencies",
+	"optionalDependencies",
+] as const;
+
+const isAlias = (version: string): boolean => version.startsWith("npm:");
+
+const validRange = (version: string): boolean =>
+	semver.validRange(version) !== null;
 
 const readDependencies = (
 	packagesVersions: PackagesVersions,
 	packageName: string,
-	dependencies: Record<string, string> = {},
-) => {
+	dependencies: Record<string, string> | undefined,
+): void => {
+	if (!dependencies) return;
 	for (const [name, version] of Object.entries(dependencies)) {
+		if (UNSAFE_KEYS.has(name)) continue;
 		if (
 			version === "workspace:*" ||
 			(!isAlias(version) && !validRange(version))
 		) {
 			continue;
 		}
-
-		if (!packagesVersions[name]) {
-			packagesVersions[name] = { versions: [], dependents: [] };
+		const entry = packagesVersions.get(name) ?? {
+			versions: [],
+			dependents: [],
+		};
+		if (!entry.versions.includes(version)) entry.versions.push(version);
+		if (!entry.dependents.includes(packageName)) {
+			entry.dependents.push(packageName);
 		}
-
-		if (!packagesVersions[name].versions.includes(version)) {
-			packagesVersions[name].versions.push(version);
-		}
-
-		if (!packagesVersions[name].dependents.includes(version)) {
-			packagesVersions[name].dependents.push(packageName);
-		}
+		packagesVersions.set(name, entry);
 	}
 };
 
-export async function workflow({ files, dirs, exec }: Api) {
-	const workspaceFile = files("pnpm-workspace.yaml").yaml();
-	const workspaceConfig = (
-		await workspaceFile.map(({ getContents }) =>
-			getContents<{ packages: string[] }>(),
-		)
-	).pop();
+export type CatalogMigrationRun = {
+	moved: number;
+	skipped: number;
+};
 
-	if (!workspaceConfig) {
+export const runMigration = (
+	cwd: string = process.cwd(),
+): CatalogMigrationRun => {
+	const workspaceYamlPath = resolve(cwd, "pnpm-workspace.yaml");
+	if (!existsSync(workspaceYamlPath)) {
 		console.log("pnpm-workspace.yaml not found");
-		return;
+		return { moved: 0, skipped: 0 };
 	}
 
-	const packagesVersions: PackagesVersions = {};
+	const workspaceYaml =
+		(YAML.parse(readFileSync(workspaceYamlPath, "utf8")) as WorkspaceYaml) ??
+		{};
+	const workspacePackages = workspaceYaml.packages ?? [];
 
-	const packageJsonFiles = dirs({
-		dirs: [...workspaceConfig.packages, "./"],
-		ignore: ["**/node_modules/**"],
-	}).files("package.json");
+	const packagesVersions: PackagesVersions = new Map();
 
-	await packageJsonFiles.json(async ({ map }) => {
-		const packageJson = (
-			await map(({ getContents }) => getContents<PackageJson>())
-		).pop();
-
-		if (!packageJson) {
-			return;
-		}
-
-		readDependencies(
-			packagesVersions,
-			packageJson.name,
-			packageJson.dependencies,
-		);
-		readDependencies(
-			packagesVersions,
-			packageJson.name,
-			packageJson.devDependencies,
-		);
-		readDependencies(
-			packagesVersions,
-			packageJson.name,
-			packageJson.optionalDependencies,
-		);
+	const includes = [
+		...workspacePackages.filter((p) => !p.startsWith("!")),
+		".",
+	];
+	const excludes = workspacePackages
+		.filter((p) => p.startsWith("!"))
+		.map((p) => p.slice(1));
+	const projectDirs = globSync(includes, {
+		cwd,
+		ignore: ["**/node_modules/**", ...excludes],
+		absolute: true,
 	});
 
-	const packagesSelected = Object.entries(packagesVersions).filter(
-		([_, { versions, dependents }]) =>
-			versions.length === 1 && dependents.length > 1,
-	);
-	const packagesNotSelected = Object.entries(packagesVersions).filter(
-		([_, { versions, dependents }]) =>
-			versions.length > 1 || dependents.length <= 1,
-	);
+	const packageJsonPaths: string[] = [];
+	for (const dir of projectDirs) {
+		const path = join(dir, "package.json");
+		if (existsSync(path)) packageJsonPaths.push(path);
+	}
 
-	if (packagesSelected.length === 0) {
+	for (const path of packageJsonPaths) {
+		let pkg: PackageJson;
+		try {
+			pkg = JSON.parse(readFileSync(path, "utf8")) as PackageJson;
+		} catch {
+			continue;
+		}
+		if (!pkg.name) continue;
+		for (const field of DEPENDENCY_FIELDS) {
+			readDependencies(packagesVersions, pkg.name, pkg[field]);
+		}
+	}
+
+	const selected: [string, PackageUsage][] = [];
+	const skipped: [string, PackageUsage][] = [];
+	for (const entry of packagesVersions.entries()) {
+		const [, { versions, dependents }] = entry;
+		if (versions.length === 1 && dependents.length > 1) {
+			selected.push(entry);
+		} else {
+			skipped.push(entry);
+		}
+	}
+
+	if (selected.length === 0) {
 		console.log("No packages selected for catalog");
-		return;
+		return { moved: 0, skipped: skipped.length };
 	}
 
-	const updateCatalog = Object.fromEntries(
-		packagesSelected.map(([name, { versions }]) => [
-			name,
-			versions[0] as string,
-		]),
+	const mergedCatalog = new Map<string, string>();
+	for (const [name, version] of Object.entries(workspaceYaml.catalog ?? {})) {
+		if (UNSAFE_KEYS.has(name)) continue;
+		mergedCatalog.set(name, version);
+	}
+	for (const [name, { versions }] of selected) {
+		mergedCatalog.set(name, versions[0] as string);
+	}
+	const sortedCatalog = Object.fromEntries(
+		[...mergedCatalog.entries()].sort(([a], [b]) => a.localeCompare(b)),
 	);
 
-	await workspaceFile.update<{ catalog: Record<string, string> }>(
-		({ catalog, ...rest }) => {
-			const sortedCatalog = Object.fromEntries(
-				Object.entries({
-					...catalog,
-					...updateCatalog,
-				}).sort(([a], [b]) => a.localeCompare(b)),
-			);
-			return {
-				...rest,
-				catalog: sortedCatalog,
-			};
-		},
-	);
+	const nextWorkspace: WorkspaceYaml = {
+		...workspaceYaml,
+		catalog: sortedCatalog,
+	};
+	const nextYaml = YAML.stringify(nextWorkspace);
+	const originalYaml = readFileSync(workspaceYamlPath, "utf8");
+	if (nextYaml !== originalYaml) {
+		writeFileSync(workspaceYamlPath, nextYaml);
+	}
 
-	await packageJsonFiles.json().update<PackageJson>((packageJson) => {
-		for (const [name] of packagesSelected) {
-			if (packageJson.dependencies?.[name]) {
-				packageJson.dependencies[name] = "catalog:";
-			}
-			if (packageJson.devDependencies?.[name]) {
-				packageJson.devDependencies[name] = "catalog:";
-			}
-			if (packageJson.optionalDependencies?.[name]) {
-				packageJson.optionalDependencies[name] = "catalog:";
-			}
+	const movedNames = new Set<string>(selected.map(([name]) => name));
+	for (const path of packageJsonPaths) {
+		let pkg: PackageJson;
+		try {
+			pkg = JSON.parse(readFileSync(path, "utf8")) as PackageJson;
+		} catch {
+			continue;
 		}
-
-		return packageJson;
-	});
-
-	await files("package.json")
-		.json()
-		.update<PackageJson>((packageJson) => {
-			if (packageJson.packageManager) {
-				const version = packageJson.packageManager.match(/pnpm@(.*)/)?.[1];
-				if (version && semver.lt(version, "9.5.0")) {
-					packageJson.packageManager = "pnpm@9.5.0";
+		let changed = false;
+		for (const field of DEPENDENCY_FIELDS) {
+			const deps = pkg[field];
+			if (!deps) continue;
+			for (const name of Object.keys(deps)) {
+				if (movedNames.has(name)) {
+					deps[name] = "catalog:";
+					changed = true;
 				}
 			}
-			return packageJson;
-		});
+		}
+		if (pkg.packageManager) {
+			const version = /^pnpm@(.*)$/.exec(pkg.packageManager)?.[1];
+			if (version && semver.valid(version) && semver.lt(version, "9.5.0")) {
+				pkg.packageManager = "pnpm@9.5.0";
+				changed = true;
+			}
+		}
+		if (changed) {
+			writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
+		}
+	}
 
-	await exec("pnpm", ["install"]);
+	const tail =
+		skipped.length > 0 ? `\nPackages not moved: ${skipped.length}\n` : "";
+	console.log(
+		`\n${selected.length} packages were safely moved to the catalog.${tail}`,
+	);
 
-	console.log(`
-
-${packagesSelected.length} packages were safely moved to the catalog.
-
-${
-	packagesNotSelected.length
-		? `Packages not moved: ${packagesNotSelected.length}
-`
-		: ""
-}`);
-}
+	return { moved: selected.length, skipped: skipped.length };
+};

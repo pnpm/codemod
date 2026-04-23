@@ -1,0 +1,20 @@
+schema_version: "1.0"
+
+name: "pnpm/v11"
+version: "1.0.0"
+description: "Migrate a pnpm v10 project to pnpm v11."
+license: "MIT"
+workflow: "workflow.yaml"
+
+targets:
+  languages: ["json", "yaml"]
+
+keywords: ["pnpm", "11", "migration"]
+
+registry:
+  access: "public"
+  visibility: "public"
+
+capabilities:
+  - fs
+  - path
