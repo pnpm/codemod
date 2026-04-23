@@ -1,0 +1,16 @@
+{
+  "$schema": "https://codemod-utils.s3.us-west-1.amazonaws.com/configuration_schema.json",
+  "name": "pnpm/v11",
+  "version": "1.0.0",
+  "engine": "workflow",
+  "private": false,
+  "arguments": [],
+  "meta": {
+    "tags": [
+      "pnpm",
+      "11",
+      "migration"
+    ],
+    "git": "https://github.com/pnpm/codemod/tree/main/v11"
+  }
+}

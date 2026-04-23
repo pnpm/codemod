@@ -42,6 +42,24 @@ importers:
         specifier: ^5.8.3
         version: 5.9.3
 
+  v11:
+    devDependencies:
+      '@codemod.com/workflow':
+        specifier: ^0.0.19
+        version: 0.0.19
+      '@types/node':
+        specifier: 20.9.0
+        version: 20.9.0
+      '@types/semver':
+        specifier: ^7.5.8
+        version: 7.5.8
+      semver:
+        specifier: ^7.6.2
+        version: 7.6.2
+      typescript:
+        specifier: ^5.2.2
+        version: 5.9.3
+
 packages:
 
   '@ampproject/remapping@2.3.0':
