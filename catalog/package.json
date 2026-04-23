@@ -1,14 +1,23 @@
 {
 	"name": "pnpm-codemod-catalog",
-  "private": true,
+	"private": true,
 	"license": "MIT",
+	"dependencies": {
+		"glob": "^10.4.1",
+		"semver": "^7.6.2",
+		"yaml": "^2.4.5"
+	},
 	"devDependencies": {
-		"@codemod.com/workflow": "^0.0.19",
 		"@types/node": "20.9.0",
 		"@types/semver": "^7.5.8",
-		"semver": "^7.6.2",
+		"esbuild": "^0.24.0",
+		"tsx": "^4.19.0",
 		"typescript": "^5.2.2"
 	},
-	"files": ["README.md", ".codemodrc.json", "/dist/index.cjs"],
-	"type": "module"
+	"files": ["README.md", "codemod.yaml", "workflow.yaml", "/dist/index.js"],
+	"type": "module",
+	"scripts": {
+		"build": "esbuild src/cli.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/index.js --banner:js=\"import{createRequire as __cr}from 'node:module';const require=__cr(import.meta.url);\"",
+		"typecheck": "tsc --noEmit"
+	}
 }

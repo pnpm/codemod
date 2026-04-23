@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/codemod/codemod/refs/heads/main/schemas/workflow.json
+
+version: "1"
+
+nodes:
+  - id: migrate-to-catalog
+    name: Migrate shared dependencies to pnpm catalog
+    type: automatic
+    steps:
+      - name: "Move shared dependencies to pnpm-workspace.yaml catalog"
+        run: node "$CODEMOD_PATH/dist/index.js"
+      - name: "Install"
+        run: pnpm install

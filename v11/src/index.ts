@@ -1,8 +1,8 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { type Api, getCwdContext } from "@codemod.com/workflow";
 import { globSync } from "glob";
 import * as semver from "semver";
+import * as YAML from "yaml";
 import {
 	type DevEnginesRuntime,
 	type MigrationWarning,
@@ -28,22 +28,37 @@ type SubprojectNpmrc = {
 	migratedSettings: PnpmSettings;
 };
 
-// Object keys that can pollute the prototype chain if used as a plain-object
-// key. Subproject package names are user-controlled, so any of these names
-// are skipped rather than written into `packageConfigs`.
+// Object keys that would pollute the prototype chain if used as a plain-object
+// key. Subproject package names come from user-controlled `package.json#name`,
+// so any of these names are skipped rather than written into `packageConfigs`.
 const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
 	value !== null && typeof value === "object" && !Array.isArray(value);
 
-const resolveWorkflowCwd = (): string => {
+const readJson = <T>(path: string): T | null => {
 	try {
-		const ctx = getCwdContext();
-		if (ctx && typeof ctx.cwd === "string") return ctx.cwd;
+		return JSON.parse(readFileSync(path, "utf8")) as T;
 	} catch {
-		// No workflow context (e.g. direct unit test). Fall through.
+		return null;
 	}
-	return process.cwd();
+};
+
+const writeJson = (path: string, value: unknown): void => {
+	writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+};
+
+const readYaml = <T>(path: string): T | null => {
+	try {
+		const parsed = YAML.parse(readFileSync(path, "utf8"));
+		return (parsed ?? null) as T | null;
+	} catch {
+		return null;
+	}
+};
+
+const writeYaml = (path: string, value: unknown): void => {
+	writeFileSync(path, YAML.stringify(value));
 };
 
 const bumpPackageManager = (packageManager: string): string | null => {
@@ -56,7 +71,7 @@ const bumpPackageManager = (packageManager: string): string | null => {
 	return `pnpm@${PNPM_V11_VERSION}`;
 };
 
-const writeOrDeleteNpmrc = (npmrcPath: string, linesToKeep: string[]) => {
+const writeOrDeleteNpmrc = (npmrcPath: string, linesToKeep: string[]): void => {
 	const serialized = serializeNpmrc(linesToKeep);
 	if (serialized === null) {
 		rmSync(npmrcPath, { force: true });
@@ -87,15 +102,8 @@ const collectSubprojectNpmrc = (
 		const packageJsonPath = join(dir, "package.json");
 		if (!existsSync(npmrcPath) || !existsSync(packageJsonPath)) continue;
 
-		let packageName: string | undefined;
-		try {
-			const parsed = JSON.parse(
-				readFileSync(packageJsonPath, "utf8"),
-			) as PackageJson;
-			packageName = parsed.name;
-		} catch {
-			continue;
-		}
+		const pkg = readJson<PackageJson>(packageJsonPath);
+		const packageName = pkg?.name;
 		if (!packageName) continue;
 
 		const { linesToKeep, migratedSettings } = parseNpmrc(
@@ -114,45 +122,46 @@ const collectSubprojectNpmrc = (
 	return results;
 };
 
-export async function workflow({ files }: Api) {
-	const cwd = resolveWorkflowCwd();
+export type MigrationRun = {
+	warnings: MigrationWarning[];
+	mutatedWorkspaceYaml: boolean;
+	mutatedPackageJson: boolean;
+	mutatedRootNpmrc: boolean;
+	mutatedSubprojectNpmrcs: number;
+};
+
+export const runMigration = (cwd: string = process.cwd()): MigrationRun => {
+	const packageJsonPath = resolve(cwd, "package.json");
 	const workspaceYamlPath = resolve(cwd, "pnpm-workspace.yaml");
 	const npmrcPath = resolve(cwd, ".npmrc");
 
-	const rootPackageJson = (
-		await files("package.json")
-			.json()
-			.map(({ getContents }) => getContents<PackageJson>())
-	).pop();
-
+	const rootPackageJson = readJson<PackageJson>(packageJsonPath);
 	if (!rootPackageJson) {
 		console.log("package.json not found. Nothing to migrate.");
-		return;
+		return {
+			warnings: [],
+			mutatedWorkspaceYaml: false,
+			mutatedPackageJson: false,
+			mutatedRootNpmrc: false,
+			mutatedSubprojectNpmrcs: 0,
+		};
 	}
 
-	const pnpmSettingsToMigrate: PnpmSettings = isPlainObject(
+	const pnpmSettingsFromPackageJson: PnpmSettings = isPlainObject(
 		rootPackageJson.pnpm,
 	)
 		? { ...(rootPackageJson.pnpm as PnpmSettings) }
 		: {};
-
 	const hasPnpmSettingsInPackageJson =
-		Object.keys(pnpmSettingsToMigrate).length > 0;
-	const workspaceYamlExists = existsSync(workspaceYamlPath);
+		Object.keys(pnpmSettingsFromPackageJson).length > 0;
 
-	// Read the workspace `packages:` list BEFORE the yaml update, so we can
-	// enumerate subproject `.npmrc` files.
-	let workspacePackages: string[] = [];
-	if (workspaceYamlExists) {
-		const existing = (
-			await files("pnpm-workspace.yaml")
-				.yaml()
-				.map(({ getContents }) => getContents<{ packages?: string[] }>())
-		).pop();
-		workspacePackages = Array.isArray(existing?.packages)
-			? (existing?.packages as string[])
-			: [];
-	}
+	const workspaceYamlExists = existsSync(workspaceYamlPath);
+	const existingWorkspaceYaml = workspaceYamlExists
+		? readYaml<Record<string, unknown>>(workspaceYamlPath) ?? {}
+		: {};
+	const workspacePackages = Array.isArray(existingWorkspaceYaml.packages)
+		? (existingWorkspaceYaml.packages as string[])
+		: [];
 
 	const rootNpmrc = existsSync(npmrcPath)
 		? parseNpmrc(readFileSync(npmrcPath, "utf8"))
@@ -160,119 +169,112 @@ export async function workflow({ files }: Api) {
 
 	const subprojectNpmrcs = collectSubprojectNpmrc(cwd, workspacePackages);
 
+	const collectedWarnings: MigrationWarning[] = [];
+	let devEnginesRuntime: DevEnginesRuntime | undefined;
+	let mutatedWorkspaceYaml = false;
+
 	const needsWorkspaceYaml =
 		workspaceYamlExists ||
 		hasPnpmSettingsInPackageJson ||
 		(rootNpmrc && Object.keys(rootNpmrc.migratedSettings).length > 0) ||
 		subprojectNpmrcs.length > 0;
 
-	// The workflow YAML API only operates on files that already exist. When the
-	// project has migratable input but no workspace manifest yet, create one.
-	if (!workspaceYamlExists && needsWorkspaceYaml) {
-		writeFileSync(workspaceYamlPath, "");
-	}
-
-	const collectedWarnings: MigrationWarning[] = [];
-	let devEnginesRuntime: DevEnginesRuntime | undefined;
-
 	if (needsWorkspaceYaml) {
-		await files("pnpm-workspace.yaml")
-			.yaml()
-			.update<Record<string, unknown>>((current) => {
-				const next: Record<string, unknown> = isPlainObject(current)
-					? { ...current }
+		const next: Record<string, unknown> = { ...existingWorkspaceYaml };
+
+		for (const [key, value] of Object.entries(pnpmSettingsFromPackageJson)) {
+			if (!(key in next)) {
+				next[key] = value;
+			}
+		}
+
+		if (rootNpmrc) {
+			for (const [key, value] of Object.entries(rootNpmrc.migratedSettings)) {
+				if (!(key in next)) {
+					next[key] = value;
+				}
+			}
+		}
+
+		if (subprojectNpmrcs.length > 0) {
+			const existingPackageConfigs = isPlainObject(next.packageConfigs)
+				? (next.packageConfigs as Record<string, unknown>)
+				: {};
+			const packageConfigs: Record<string, unknown> = {
+				...existingPackageConfigs,
+			};
+			for (const { name, migratedSettings } of subprojectNpmrcs) {
+				if (UNSAFE_KEYS.has(name)) {
+					collectedWarnings.push(
+						`Skipped subproject named "${name}" — reserved JavaScript property key.`,
+					);
+					continue;
+				}
+				const existing = isPlainObject(packageConfigs[name])
+					? (packageConfigs[name] as Record<string, unknown>)
 					: {};
-
-				for (const [key, value] of Object.entries(pnpmSettingsToMigrate)) {
-					if (!(key in next)) {
-						next[key] = value;
-					}
+				const merged = { ...existing };
+				for (const [k, v] of Object.entries(migratedSettings)) {
+					if (!(k in merged)) merged[k] = v;
 				}
+				const subResult = applyMigrations(merged, workspaceYamlPath);
+				collectedWarnings.push(
+					...subResult.warnings.map((w) => `(packageConfigs["${name}"]) ${w}`),
+				);
+				packageConfigs[name] = merged;
+			}
+			next.packageConfigs = packageConfigs;
+		}
 
-				if (rootNpmrc) {
-					for (const [key, value] of Object.entries(
-						rootNpmrc.migratedSettings,
-					)) {
-						if (!(key in next)) {
-							next[key] = value;
-						}
-					}
-				}
+		const result = applyMigrations(next, workspaceYamlPath);
+		collectedWarnings.push(...result.warnings);
+		if (result.devEnginesRuntime) {
+			devEnginesRuntime = result.devEnginesRuntime;
+		}
 
-				if (subprojectNpmrcs.length > 0) {
-					const existingPackageConfigs = isPlainObject(next.packageConfigs)
-						? (next.packageConfigs as Record<string, unknown>)
-						: {};
-					const packageConfigs: Record<string, unknown> = {
-						...existingPackageConfigs,
-					};
-					for (const { name, migratedSettings } of subprojectNpmrcs) {
-						if (UNSAFE_KEYS.has(name)) {
-							collectedWarnings.push(
-								`Skipped subproject named "${name}" — reserved JavaScript property key.`,
-							);
-							continue;
-						}
-						const existing = isPlainObject(packageConfigs[name])
-							? (packageConfigs[name] as Record<string, unknown>)
-							: {};
-						const merged = { ...existing };
-						for (const [k, v] of Object.entries(migratedSettings)) {
-							if (!(k in merged)) merged[k] = v;
-						}
-						const subResult = applyMigrations(merged, workspaceYamlPath);
-						collectedWarnings.push(
-							...subResult.warnings.map(
-								(w) => `(packageConfigs["${name}"]) ${w}`,
-							),
-						);
-						packageConfigs[name] = merged;
-					}
-					next.packageConfigs = packageConfigs;
-				}
-
-				const result = applyMigrations(next, workspaceYamlPath);
-				collectedWarnings.push(...result.warnings);
-				if (result.devEnginesRuntime) {
-					devEnginesRuntime = result.devEnginesRuntime;
-				}
-				return next;
-			});
+		writeYaml(workspaceYamlPath, next);
+		mutatedWorkspaceYaml = true;
 	}
 
-	await files("package.json")
-		.json()
-		.update<PackageJson>((packageJson) => {
-			if ("pnpm" in packageJson) {
-				// biome-ignore lint/performance/noDelete: need real removal for serialization
-				delete packageJson.pnpm;
-			}
-			if (packageJson.packageManager) {
-				const bumped = bumpPackageManager(packageJson.packageManager);
-				if (bumped) {
-					packageJson.packageManager = bumped;
-				}
-			}
-			if (devEnginesRuntime) {
-				const existingRuntime = packageJson.devEngines?.runtime;
-				if (existingRuntime) {
-					collectedWarnings.push(
-						`devEngines.runtime is already set (${JSON.stringify(
-							existingRuntime,
-						)}); useNodeVersion=${devEnginesRuntime.version} was not applied. Resolve the conflict manually.`,
-					);
-				} else {
-					packageJson.devEngines = {
-						...packageJson.devEngines,
-						runtime: devEnginesRuntime,
-					};
-				}
-			}
-			return packageJson;
-		});
+	let mutatedPackageJson = false;
+	const nextPackageJson: PackageJson = { ...rootPackageJson };
 
+	if ("pnpm" in nextPackageJson) {
+		// biome-ignore lint/performance/noDelete: need real removal for serialization
+		delete nextPackageJson.pnpm;
+		mutatedPackageJson = true;
+	}
+	if (nextPackageJson.packageManager) {
+		const bumped = bumpPackageManager(nextPackageJson.packageManager);
+		if (bumped) {
+			nextPackageJson.packageManager = bumped;
+			mutatedPackageJson = true;
+		}
+	}
+	if (devEnginesRuntime) {
+		const existingRuntime = nextPackageJson.devEngines?.runtime;
+		if (existingRuntime) {
+			collectedWarnings.push(
+				`devEngines.runtime is already set (${JSON.stringify(
+					existingRuntime,
+				)}); useNodeVersion=${devEnginesRuntime.version} was not applied. Resolve the conflict manually.`,
+			);
+		} else {
+			nextPackageJson.devEngines = {
+				...nextPackageJson.devEngines,
+				runtime: devEnginesRuntime,
+			};
+			mutatedPackageJson = true;
+		}
+	}
+	if (mutatedPackageJson) {
+		writeJson(packageJsonPath, nextPackageJson);
+	}
+
+	let mutatedRootNpmrc = false;
 	if (rootNpmrc) {
 		writeOrDeleteNpmrc(npmrcPath, rootNpmrc.linesToKeep);
+		mutatedRootNpmrc = true;
 	}
 	for (const { npmrcPath: subPath, linesToKeep } of subprojectNpmrcs) {
 		writeOrDeleteNpmrc(subPath, linesToKeep);
@@ -286,6 +288,14 @@ export async function workflow({ files }: Api) {
 	}
 
 	console.log(
-		`\npnpm v11 migration complete. Run your package manager's install command to refresh the lockfile.`,
+		"\npnpm v11 migration complete. Run your package manager's install command to refresh the lockfile.",
 	);
-}
+
+	return {
+		warnings: collectedWarnings,
+		mutatedWorkspaceYaml,
+		mutatedPackageJson,
+		mutatedRootNpmrc,
+		mutatedSubprojectNpmrcs: subprojectNpmrcs.length,
+	};
+};

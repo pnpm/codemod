@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/codemod/codemod/refs/heads/main/schemas/workflow.json
+
+version: "1"
+
+nodes:
+  - id: migrate-to-pnpm-v11
+    name: Migrate to pnpm v11
+    type: automatic
+    steps:
+      - name: "Run pnpm v10 → v11 migration"
+        run: node "$CODEMOD_PATH/dist/index.js"

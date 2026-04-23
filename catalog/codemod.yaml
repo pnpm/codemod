@@ -1,0 +1,20 @@
+schema_version: "1.0"
+
+name: "pnpm/catalog"
+version: "1.0.7"
+description: "Migrate a pnpm workspace to use the catalog feature."
+license: "MIT"
+workflow: "workflow.yaml"
+
+targets:
+  languages: ["json", "yaml"]
+
+keywords: ["pnpm", "9.5", "catalog"]
+
+registry:
+  access: "public"
+  visibility: "public"
+
+capabilities:
+  - fs
+  - path

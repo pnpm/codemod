@@ -1,7 +1,19 @@
 This codemod migrates a pnpm v10 project to pnpm v11.
 
 ```sh
-pnpx codemod pnpm/v11
+cd /path/to/your/project
+codemod run pnpm/v11
+```
+
+## Running locally
+
+```sh
+# From the repo root:
+pnpm --filter pnpm-codemod-v11 build
+
+# Then, from the project you want to migrate:
+cd /path/to/your/project
+pnpx codemod@latest workflow run -w /path/to/codemod/v11 --allow-fs --allow-child-process
 ```
 
 ## What it does
