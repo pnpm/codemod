@@ -112,9 +112,12 @@ export const parseNpmrc = (content: string): ParsedNpmrc => {
 };
 
 // Serialize `linesToKeep` back into a `.npmrc` body. Returns `null` if the
-// resulting file would be empty (indicating the caller should delete it).
+// resulting file would be blank (indicating the caller should delete it).
+// Comment-only and blank-line-interspersed input is preserved verbatim so
+// any lines the caller chose to keep round-trip byte-for-byte.
 export const serializeNpmrc = (linesToKeep: string[]): string | null => {
-	const body = linesToKeep.join("\n").trim();
-	if (body === "") return null;
-	return `${body}\n`;
+	if (linesToKeep.length === 0) return null;
+	const body = linesToKeep.join("\n");
+	if (body.trim() === "") return null;
+	return body.endsWith("\n") ? body : `${body}\n`;
 };

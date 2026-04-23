@@ -154,8 +154,14 @@ const migrateRenames = (
 		removeKeys(settings, "ignorePatchFailures");
 	}
 
-	const audit = settings.auditConfig as AuditConfig | undefined;
-	if (audit && "ignoreCves" in audit) {
+	const auditRaw = settings.auditConfig;
+	if (
+		auditRaw !== null &&
+		typeof auditRaw === "object" &&
+		!Array.isArray(auditRaw) &&
+		"ignoreCves" in auditRaw
+	) {
+		const audit = auditRaw as AuditConfig;
 		const cves = audit.ignoreCves;
 		removeKeys(audit, "ignoreCves");
 		if (Array.isArray(cves) && cves.length > 0) {

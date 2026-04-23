@@ -122,9 +122,20 @@ describe("parseNpmrc — mixed content", () => {
 });
 
 describe("serializeNpmrc", () => {
-	test("returns null when only blank/comment lines remain", () => {
+	test("returns null when the result would be entirely blank", () => {
 		assert.equal(serializeNpmrc([]), null);
 		assert.equal(serializeNpmrc(["", "  ", ""]), null);
+	});
+
+	test("preserves comment-only content rather than discarding it", () => {
+		assert.equal(serializeNpmrc(["# just a note"]), "# just a note\n");
+	});
+
+	test("preserves original whitespace on kept lines (no trim)", () => {
+		assert.equal(
+			serializeNpmrc(["  registry=https://registry.npmjs.org/  "]),
+			"  registry=https://registry.npmjs.org/  \n",
+		);
 	});
 
 	test("joins kept lines and appends a trailing newline", () => {

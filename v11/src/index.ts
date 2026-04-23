@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { Api } from "@codemod.com/workflow";
+import { type Api, getCwdContext } from "@codemod.com/workflow";
 import { globSync } from "glob";
 import * as semver from "semver";
 import {
@@ -28,8 +28,23 @@ type SubprojectNpmrc = {
 	migratedSettings: PnpmSettings;
 };
 
+// Object keys that can pollute the prototype chain if used as a plain-object
+// key. Subproject package names are user-controlled, so any of these names
+// are skipped rather than written into `packageConfigs`.
+const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
 	value !== null && typeof value === "object" && !Array.isArray(value);
+
+const resolveWorkflowCwd = (): string => {
+	try {
+		const ctx = getCwdContext();
+		if (ctx && typeof ctx.cwd === "string") return ctx.cwd;
+	} catch {
+		// No workflow context (e.g. direct unit test). Fall through.
+	}
+	return process.cwd();
+};
 
 const bumpPackageManager = (packageManager: string): string | null => {
 	const match = /^pnpm@(.+)$/.exec(packageManager);
@@ -100,7 +115,7 @@ const collectSubprojectNpmrc = (
 };
 
 export async function workflow({ files }: Api) {
-	const cwd = process.cwd();
+	const cwd = resolveWorkflowCwd();
 	const workspaceYamlPath = resolve(cwd, "pnpm-workspace.yaml");
 	const npmrcPath = resolve(cwd, ".npmrc");
 
@@ -192,6 +207,12 @@ export async function workflow({ files }: Api) {
 						...existingPackageConfigs,
 					};
 					for (const { name, migratedSettings } of subprojectNpmrcs) {
+						if (UNSAFE_KEYS.has(name)) {
+							collectedWarnings.push(
+								`Skipped subproject named "${name}" — reserved JavaScript property key.`,
+							);
+							continue;
+						}
 						const existing = isPlainObject(packageConfigs[name])
 							? (packageConfigs[name] as Record<string, unknown>)
 							: {};
