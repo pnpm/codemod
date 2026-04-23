@@ -2,3 +2,5 @@ packages:
   - catalog
   - patch
   - v11
+allowBuilds:
+  esbuild: true
