@@ -2,7 +2,7 @@ This codemod migrates a pnpm v10 project to pnpm v11.
 
 ```sh
 cd /path/to/your/project
-codemod run pnpm/v11
+codemod run pnpm-v10-to-v11
 ```
 
 ## Running locally

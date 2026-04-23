@@ -8,6 +8,6 @@ pnpx codemod pnpm/catalog
 
 ## Migrate from pnpm v10 to v11
 ```sh
-pnpx codemod pnpm/v11
+pnpx codemod pnpm-v10-to-v11
 ```
 [README](./v11/README.md)
