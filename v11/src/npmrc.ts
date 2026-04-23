@@ -1,4 +1,5 @@
 import type { PnpmSettings } from "./migrations.js";
+import { isSafeKey } from "./safe-keys.js";
 
 export type ParsedNpmrc = {
 	// Original lines that should stay in the `.npmrc` file (auth/registry,
@@ -95,6 +96,9 @@ export const parseNpmrc = (content: string): ParsedNpmrc => {
 			continue;
 		}
 		const camelKey = camelize(key);
+		// User-controlled key name: drop prototype-polluting entries
+		// rather than letting them land in the workspace manifest.
+		if (!isSafeKey(camelKey)) continue;
 		const parsedValue = parseValue(value);
 		if (isArray) {
 			const existing = migratedSettings[camelKey];

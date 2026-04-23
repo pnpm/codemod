@@ -121,6 +121,28 @@ describe("parseNpmrc — mixed content", () => {
 	});
 });
 
+describe("parseNpmrc — prototype pollution defense", () => {
+	test("drops __proto__, constructor, prototype keys entirely", () => {
+		const { linesToKeep, migratedSettings } = parseNpmrc(
+			[
+				"__proto__=polluted",
+				"constructor=polluted",
+				"prototype=polluted",
+				"node-linker=hoisted",
+			].join("\n"),
+		);
+		assert.deepEqual(migratedSettings, { nodeLinker: "hoisted" });
+		assert.ok(
+			!Object.hasOwn(migratedSettings, "__proto__"),
+			"__proto__ should never appear as an own property",
+		);
+		// The raw __proto__= line is not an auth/registry line, so parseNpmrc
+		// would otherwise migrate it; the filter drops it silently from both
+		// output channels. It should NOT be kept in the .npmrc file either.
+		assert.ok(!linesToKeep.some((line) => line.startsWith("__proto__=")));
+	});
+});
+
 describe("serializeNpmrc", () => {
 	test("returns null when the result would be entirely blank", () => {
 		assert.equal(serializeNpmrc([]), null);

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { hasOwn, isSafeKey } from "./safe-keys.js";
 
 export type PnpmSettings = Record<string, unknown>;
 
@@ -36,7 +37,9 @@ const mergeIntoAllowBuilds = (
 ): void => {
 	if (!Array.isArray(names)) return;
 	for (const name of names) {
-		if (typeof name !== "string" || name in target) continue;
+		if (typeof name !== "string") continue;
+		if (!isSafeKey(name)) continue;
+		if (hasOwn(target, name)) continue;
 		target[name] = verdict;
 	}
 };

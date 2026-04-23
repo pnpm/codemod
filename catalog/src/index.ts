@@ -4,12 +4,21 @@ import { globSync } from "glob";
 import * as semver from "semver";
 import * as YAML from "yaml";
 
-type PackagesVersions = Record<string, PackageUsage>;
+// `Map` is used instead of a plain object so that dependency names coming
+// from user-controlled `package.json` files cannot trigger prototype
+// pollution (e.g. a `__proto__` entry would only land in Map storage).
+type PackagesVersions = Map<string, PackageUsage>;
 
 type PackageUsage = {
 	versions: string[];
 	dependents: string[];
 };
+
+const UNSAFE_KEYS: ReadonlySet<string> = new Set([
+	"__proto__",
+	"constructor",
+	"prototype",
+]);
 
 type PackageJson = {
 	name?: string;
@@ -43,18 +52,22 @@ const readDependencies = (
 ): void => {
 	if (!dependencies) return;
 	for (const [name, version] of Object.entries(dependencies)) {
+		if (UNSAFE_KEYS.has(name)) continue;
 		if (
 			version === "workspace:*" ||
 			(!isAlias(version) && !validRange(version))
 		) {
 			continue;
 		}
-		const entry = packagesVersions[name] ?? { versions: [], dependents: [] };
+		const entry = packagesVersions.get(name) ?? {
+			versions: [],
+			dependents: [],
+		};
 		if (!entry.versions.includes(version)) entry.versions.push(version);
 		if (!entry.dependents.includes(packageName)) {
 			entry.dependents.push(packageName);
 		}
-		packagesVersions[name] = entry;
+		packagesVersions.set(name, entry);
 	}
 };
 
@@ -77,7 +90,7 @@ export const runMigration = (
 		{};
 	const workspacePackages = workspaceYaml.packages ?? [];
 
-	const packagesVersions: PackagesVersions = {};
+	const packagesVersions: PackagesVersions = new Map();
 
 	const includes = [
 		...workspacePackages.filter((p) => !p.startsWith("!")),
@@ -111,35 +124,45 @@ export const runMigration = (
 		}
 	}
 
-	const selected = Object.entries(packagesVersions).filter(
-		([, { versions, dependents }]) =>
-			versions.length === 1 && dependents.length > 1,
-	);
-	const skipped = Object.entries(packagesVersions).filter(
-		([, { versions, dependents }]) =>
-			versions.length > 1 || dependents.length <= 1,
-	);
+	const selected: [string, PackageUsage][] = [];
+	const skipped: [string, PackageUsage][] = [];
+	for (const entry of packagesVersions.entries()) {
+		const [, { versions, dependents }] = entry;
+		if (versions.length === 1 && dependents.length > 1) {
+			selected.push(entry);
+		} else {
+			skipped.push(entry);
+		}
+	}
 
 	if (selected.length === 0) {
 		console.log("No packages selected for catalog");
 		return { moved: 0, skipped: skipped.length };
 	}
 
-	const updateCatalog: Record<string, string> = Object.fromEntries(
-		selected.map(([name, { versions }]) => [name, versions[0] as string]),
-	);
-
-	const nextWorkspace: WorkspaceYaml = { ...workspaceYaml };
+	const mergedCatalog = new Map<string, string>();
+	for (const [name, version] of Object.entries(workspaceYaml.catalog ?? {})) {
+		if (UNSAFE_KEYS.has(name)) continue;
+		mergedCatalog.set(name, version);
+	}
+	for (const [name, { versions }] of selected) {
+		mergedCatalog.set(name, versions[0] as string);
+	}
 	const sortedCatalog = Object.fromEntries(
-		Object.entries({
-			...(workspaceYaml.catalog ?? {}),
-			...updateCatalog,
-		}).sort(([a], [b]) => a.localeCompare(b)),
+		[...mergedCatalog.entries()].sort(([a], [b]) => a.localeCompare(b)),
 	);
-	nextWorkspace.catalog = sortedCatalog;
-	writeFileSync(workspaceYamlPath, YAML.stringify(nextWorkspace));
 
-	const movedNames = new Set(selected.map(([name]) => name));
+	const nextWorkspace: WorkspaceYaml = {
+		...workspaceYaml,
+		catalog: sortedCatalog,
+	};
+	const nextYaml = YAML.stringify(nextWorkspace);
+	const originalYaml = readFileSync(workspaceYamlPath, "utf8");
+	if (nextYaml !== originalYaml) {
+		writeFileSync(workspaceYamlPath, nextYaml);
+	}
+
+	const movedNames = new Set<string>(selected.map(([name]) => name));
 	for (const path of packageJsonPaths) {
 		let pkg: PackageJson;
 		try {

@@ -10,6 +10,7 @@ import {
 	applyMigrations,
 } from "./migrations.js";
 import { parseNpmrc, serializeNpmrc } from "./npmrc.js";
+import { hasOwn, isSafeKey } from "./safe-keys.js";
 
 const PNPM_V11_VERSION = "11.0.0-rc.5";
 
@@ -24,17 +25,26 @@ type PackageJson = {
 type SubprojectNpmrc = {
 	name: string;
 	npmrcPath: string;
+	originalContent: string;
 	linesToKeep: string[];
 	migratedSettings: PnpmSettings;
 };
 
-// Object keys that would pollute the prototype chain if used as a plain-object
-// key. Subproject package names come from user-controlled `package.json#name`,
-// so any of these names are skipped rather than written into `packageConfigs`.
-const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
-
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
 	value !== null && typeof value === "object" && !Array.isArray(value);
+
+// Copy user-controlled entries into `dst` while dropping prototype-polluting
+// keys and preserving any key that is already an own property of `dst`.
+const mergeSettings = (
+	dst: Record<string, unknown>,
+	src: Record<string, unknown>,
+): void => {
+	for (const [key, value] of Object.entries(src)) {
+		if (!isSafeKey(key)) continue;
+		if (hasOwn(dst, key)) continue;
+		dst[key] = value;
+	}
+};
 
 const readJson = <T>(path: string): T | null => {
 	try {
@@ -57,10 +67,6 @@ const readYaml = <T>(path: string): T | null => {
 	}
 };
 
-const writeYaml = (path: string, value: unknown): void => {
-	writeFileSync(path, YAML.stringify(value));
-};
-
 const bumpPackageManager = (packageManager: string): string | null => {
 	const match = /^pnpm@(.+)$/.exec(packageManager);
 	if (!match) return null;
@@ -71,13 +77,21 @@ const bumpPackageManager = (packageManager: string): string | null => {
 	return `pnpm@${PNPM_V11_VERSION}`;
 };
 
-const writeOrDeleteNpmrc = (npmrcPath: string, linesToKeep: string[]): void => {
+// Returns true if the `.npmrc` file was actually changed on disk.
+const writeOrDeleteNpmrc = (
+	npmrcPath: string,
+	originalContent: string,
+	linesToKeep: string[],
+): boolean => {
 	const serialized = serializeNpmrc(linesToKeep);
 	if (serialized === null) {
+		if (!existsSync(npmrcPath)) return false;
 		rmSync(npmrcPath, { force: true });
-	} else {
-		writeFileSync(npmrcPath, serialized);
+		return true;
 	}
+	if (serialized === originalContent) return false;
+	writeFileSync(npmrcPath, serialized);
+	return true;
 };
 
 const collectSubprojectNpmrc = (
@@ -106,14 +120,14 @@ const collectSubprojectNpmrc = (
 		const packageName = pkg?.name;
 		if (!packageName) continue;
 
-		const { linesToKeep, migratedSettings } = parseNpmrc(
-			readFileSync(npmrcPath, "utf8"),
-		);
+		const originalContent = readFileSync(npmrcPath, "utf8");
+		const { linesToKeep, migratedSettings } = parseNpmrc(originalContent);
 		if (Object.keys(migratedSettings).length === 0) continue;
 
 		results.push({
 			name: packageName,
 			npmrcPath,
+			originalContent,
 			linesToKeep,
 			migratedSettings,
 		});
@@ -163,9 +177,11 @@ export const runMigration = (cwd: string = process.cwd()): MigrationRun => {
 		? (existingWorkspaceYaml.packages as string[])
 		: [];
 
-	const rootNpmrc = existsSync(npmrcPath)
-		? parseNpmrc(readFileSync(npmrcPath, "utf8"))
+	const rootNpmrcContent = existsSync(npmrcPath)
+		? readFileSync(npmrcPath, "utf8")
 		: null;
+	const rootNpmrc =
+		rootNpmrcContent !== null ? parseNpmrc(rootNpmrcContent) : null;
 
 	const subprojectNpmrcs = collectSubprojectNpmrc(cwd, workspacePackages);
 
@@ -182,18 +198,10 @@ export const runMigration = (cwd: string = process.cwd()): MigrationRun => {
 	if (needsWorkspaceYaml) {
 		const next: Record<string, unknown> = { ...existingWorkspaceYaml };
 
-		for (const [key, value] of Object.entries(pnpmSettingsFromPackageJson)) {
-			if (!(key in next)) {
-				next[key] = value;
-			}
-		}
+		mergeSettings(next, pnpmSettingsFromPackageJson);
 
 		if (rootNpmrc) {
-			for (const [key, value] of Object.entries(rootNpmrc.migratedSettings)) {
-				if (!(key in next)) {
-					next[key] = value;
-				}
-			}
+			mergeSettings(next, rootNpmrc.migratedSettings);
 		}
 
 		if (subprojectNpmrcs.length > 0) {
@@ -204,7 +212,7 @@ export const runMigration = (cwd: string = process.cwd()): MigrationRun => {
 				...existingPackageConfigs,
 			};
 			for (const { name, migratedSettings } of subprojectNpmrcs) {
-				if (UNSAFE_KEYS.has(name)) {
+				if (!isSafeKey(name)) {
 					collectedWarnings.push(
 						`Skipped subproject named "${name}" — reserved JavaScript property key.`,
 					);
@@ -214,9 +222,7 @@ export const runMigration = (cwd: string = process.cwd()): MigrationRun => {
 					? (packageConfigs[name] as Record<string, unknown>)
 					: {};
 				const merged = { ...existing };
-				for (const [k, v] of Object.entries(migratedSettings)) {
-					if (!(k in merged)) merged[k] = v;
-				}
+				mergeSettings(merged, migratedSettings);
 				const subResult = applyMigrations(merged, workspaceYamlPath);
 				collectedWarnings.push(
 					...subResult.warnings.map((w) => `(packageConfigs["${name}"]) ${w}`),
@@ -232,8 +238,14 @@ export const runMigration = (cwd: string = process.cwd()): MigrationRun => {
 			devEnginesRuntime = result.devEnginesRuntime;
 		}
 
-		writeYaml(workspaceYamlPath, next);
-		mutatedWorkspaceYaml = true;
+		const originalYaml = workspaceYamlExists
+			? readFileSync(workspaceYamlPath, "utf8")
+			: "";
+		const nextYaml = YAML.stringify(next);
+		if (nextYaml !== originalYaml) {
+			writeFileSync(workspaceYamlPath, nextYaml);
+			mutatedWorkspaceYaml = true;
+		}
 	}
 
 	let mutatedPackageJson = false;
@@ -272,12 +284,22 @@ export const runMigration = (cwd: string = process.cwd()): MigrationRun => {
 	}
 
 	let mutatedRootNpmrc = false;
-	if (rootNpmrc) {
-		writeOrDeleteNpmrc(npmrcPath, rootNpmrc.linesToKeep);
-		mutatedRootNpmrc = true;
+	if (rootNpmrc && rootNpmrcContent !== null) {
+		mutatedRootNpmrc = writeOrDeleteNpmrc(
+			npmrcPath,
+			rootNpmrcContent,
+			rootNpmrc.linesToKeep,
+		);
 	}
-	for (const { npmrcPath: subPath, linesToKeep } of subprojectNpmrcs) {
-		writeOrDeleteNpmrc(subPath, linesToKeep);
+	let mutatedSubprojectNpmrcs = 0;
+	for (const {
+		npmrcPath: subPath,
+		originalContent,
+		linesToKeep,
+	} of subprojectNpmrcs) {
+		if (writeOrDeleteNpmrc(subPath, originalContent, linesToKeep)) {
+			mutatedSubprojectNpmrcs += 1;
+		}
 	}
 
 	if (collectedWarnings.length > 0) {
@@ -296,6 +318,6 @@ export const runMigration = (cwd: string = process.cwd()): MigrationRun => {
 		mutatedWorkspaceYaml,
 		mutatedPackageJson,
 		mutatedRootNpmrc,
-		mutatedSubprojectNpmrcs: subprojectNpmrcs.length,
+		mutatedSubprojectNpmrcs,
 	};
 };

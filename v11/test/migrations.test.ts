@@ -214,6 +214,16 @@ describe("renames and removals", () => {
 	});
 });
 
+describe("allowBuilds — prototype pollution defense", () => {
+	test("skips __proto__, constructor, prototype in the build-dep lists", () => {
+		const { settings } = migrate({
+			onlyBuiltDependencies: ["__proto__", "constructor", "real-pkg"],
+			neverBuiltDependencies: ["prototype"],
+		});
+		assert.deepEqual(settings.allowBuilds, { "real-pkg": true });
+	});
+});
+
 describe("end-to-end", () => {
 	test("full v10 manifest migrates cleanly with expected warnings", () => {
 		const { settings, warnings, devEnginesRuntime } = migrate({
