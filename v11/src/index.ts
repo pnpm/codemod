@@ -12,7 +12,7 @@ import {
 import { parseNpmrc, serializeNpmrc } from "./npmrc.js";
 import { hasOwn, isSafeKey } from "./safe-keys.js";
 
-const PNPM_V11_VERSION = "11.0.0-rc.5";
+const PNPM_V11_VERSION = "11.0.1";
 
 type PackageJson = {
 	name?: string;
@@ -241,7 +241,7 @@ export const runMigration = (cwd: string = process.cwd()): MigrationRun => {
 		const originalYaml = workspaceYamlExists
 			? readFileSync(workspaceYamlPath, "utf8")
 			: "";
-		const nextYaml = YAML.stringify(next);
+		const nextYaml = YAML.stringify(next, { singleQuote: true });
 		if (nextYaml !== originalYaml) {
 			writeFileSync(workspaceYamlPath, nextYaml);
 			mutatedWorkspaceYaml = true;

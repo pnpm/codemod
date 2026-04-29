@@ -77,7 +77,7 @@ describe("runMigration — end-to-end", () => {
 			const result = runMigration(root);
 
 			const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
-			assert.equal(pkg.packageManager, "pnpm@11.0.0-rc.5");
+			assert.equal(pkg.packageManager, "pnpm@11.0.1");
 			assert.ok(!("pnpm" in pkg), "pnpm field should be removed");
 			assert.deepEqual(pkg.devEngines.runtime, {
 				name: "node",
@@ -133,6 +133,35 @@ describe("runMigration — end-to-end", () => {
 		}
 	});
 
+	test("uses single quotes when stringifying pnpm-workspace.yaml", () => {
+		const root = mkdtempSync(join(tmpdir(), "pnpm-codemod-v11-e2e-"));
+		try {
+			writeFileSync(
+				join(root, "package.json"),
+				JSON.stringify({
+					name: "root",
+					pnpm: { onlyBuiltDependencies: ["electron"] },
+				}),
+			);
+			// `*` and `!…/*` must be quoted in YAML; previously the codemod emitted
+			// double quotes, overriding the user's single-quote style.
+			writeFileSync(
+				join(root, "pnpm-workspace.yaml"),
+				"packages:\n  - '*'\n  - '!excluded/*'\n",
+			);
+
+			runMigration(root);
+
+			const yaml = readFileSync(join(root, "pnpm-workspace.yaml"), "utf8");
+			assert.match(yaml, /'\*'/);
+			assert.match(yaml, /'!excluded\/\*'/);
+			assert.doesNotMatch(yaml, /"\*"/);
+			assert.doesNotMatch(yaml, /"!excluded\/\*"/);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
 	test("leaves pinned v11 packageManager alone", () => {
 		const root = mkdtempSync(join(tmpdir(), "pnpm-codemod-v11-e2e-"));
 		try {
@@ -140,12 +169,12 @@ describe("runMigration — end-to-end", () => {
 				join(root, "package.json"),
 				JSON.stringify({
 					name: "already-v11",
-					packageManager: "pnpm@11.0.0-rc.5",
+					packageManager: "pnpm@11.0.1",
 				}),
 			);
 			runMigration(root);
 			const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
-			assert.equal(pkg.packageManager, "pnpm@11.0.0-rc.5");
+			assert.equal(pkg.packageManager, "pnpm@11.0.1");
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}
