@@ -1,7 +1,7 @@
 schema_version: "1.0"
 
 name: "pnpm-v10-to-v11"
-version: "1.0.0"
+version: "1.0.1"
 description: "Migrate a pnpm v10 project to pnpm v11."
 author: "Zoltan Kochan <z@kochan.io>"
 license: "MIT"
