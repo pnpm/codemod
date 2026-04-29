@@ -8,6 +8,6 @@ nodes:
     type: automatic
     steps:
       - name: "Move shared dependencies to pnpm-workspace.yaml catalog"
-        run: node "$CODEMOD_PATH/dist/index.js"
+        run: node -e "import(require('url').pathToFileURL(process.env.CODEMOD_PATH+'/dist/index.js').href)"
       - name: "Install"
         run: pnpm install
