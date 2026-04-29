@@ -68,7 +68,7 @@ The `ignoreDepScripts` setting has no equivalent — the codemod removes it and 
 
 ### Bumps the `packageManager` field in `package.json`
 
-If the root `package.json` pins pnpm below v11 via `packageManager`, it is bumped to `pnpm@11.0.1`.
+If the root `package.json` pins pnpm below v11 via `packageManager`, it is bumped to the latest pnpm v11 release. The exact version is resolved at runtime from the `latest-11` dist-tag on the npm registry. If the registry is unreachable, the codemod falls back to a pinned version (currently `pnpm@11.0.1`).
 
 ## Things the codemod will NOT do automatically
 

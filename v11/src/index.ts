@@ -13,7 +13,26 @@ import {
 import { parseNpmrc, serializeNpmrc } from "./npmrc.js";
 import { hasOwn, isSafeKey } from "./safe-keys.js";
 
-const PNPM_V11_VERSION = "11.0.1";
+// Used when the npm registry can't be reached (offline, private mirror, etc.).
+// Bump alongside each pnpm v11 release.
+const PNPM_V11_FALLBACK_VERSION = "11.0.1";
+const REGISTRY_DIST_TAGS_URL =
+	"https://registry.npmjs.org/-/package/pnpm/dist-tags";
+const REGISTRY_TIMEOUT_MS = 5000;
+
+const resolveLatestPnpmV11 = async (): Promise<string | null> => {
+	try {
+		const response = await fetch(REGISTRY_DIST_TAGS_URL, {
+			signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS),
+		});
+		if (!response.ok) return null;
+		const distTags = (await response.json()) as Record<string, unknown>;
+		const latest11 = distTags["latest-11"];
+		return typeof latest11 === "string" ? latest11 : null;
+	} catch {
+		return null;
+	}
+};
 
 type PackageJson = {
 	name?: string;
@@ -72,14 +91,17 @@ const readYamlDocument = (
 	}
 };
 
-const bumpPackageManager = (packageManager: string): string | null => {
+const bumpPackageManager = (
+	packageManager: string,
+	targetVersion: string,
+): string | null => {
 	const match = /^pnpm@(.+)$/.exec(packageManager);
 	if (!match) return null;
 	const current = match[1] as string;
 	const coerced = semver.coerce(current);
 	if (!coerced) return null;
 	if (semver.gte(coerced, "11.0.0")) return null;
-	return `pnpm@${PNPM_V11_VERSION}`;
+	return `pnpm@${targetVersion}`;
 };
 
 // Returns true if the `.npmrc` file was actually changed on disk.
@@ -149,7 +171,16 @@ export type MigrationRun = {
 	mutatedSubprojectNpmrcs: number;
 };
 
-export const runMigration = (cwd: string = process.cwd()): MigrationRun => {
+export type RunMigrationOptions = {
+	// Skip the npm-registry lookup for the latest pnpm v11 release. Useful for
+	// tests and offline runs.
+	pnpmVersion?: string;
+};
+
+export const runMigration = async (
+	cwd: string = process.cwd(),
+	options: RunMigrationOptions = {},
+): Promise<MigrationRun> => {
 	const packageJsonPath = resolve(cwd, "package.json");
 	const workspaceYamlPath = resolve(cwd, "pnpm-workspace.yaml");
 	const npmrcPath = resolve(cwd, ".npmrc");
@@ -269,7 +300,14 @@ export const runMigration = (cwd: string = process.cwd()): MigrationRun => {
 		mutatedPackageJson = true;
 	}
 	if (nextPackageJson.packageManager) {
-		const bumped = bumpPackageManager(nextPackageJson.packageManager);
+		const targetVersion =
+			options.pnpmVersion ??
+			(await resolveLatestPnpmV11()) ??
+			PNPM_V11_FALLBACK_VERSION;
+		const bumped = bumpPackageManager(
+			nextPackageJson.packageManager,
+			targetVersion,
+		);
 		if (bumped) {
 			nextPackageJson.packageManager = bumped;
 			mutatedPackageJson = true;
