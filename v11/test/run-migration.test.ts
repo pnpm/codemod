@@ -162,6 +162,37 @@ describe("runMigration — end-to-end", () => {
 		}
 	});
 
+	test("preserves comments in pnpm-workspace.yaml", () => {
+		const root = mkdtempSync(join(tmpdir(), "pnpm-codemod-v11-e2e-"));
+		try {
+			writeFileSync(
+				join(root, "package.json"),
+				JSON.stringify({
+					name: "root",
+					pnpm: { onlyBuiltDependencies: ["electron"] },
+				}),
+			);
+			writeFileSync(
+				join(root, "pnpm-workspace.yaml"),
+				[
+					"# top-of-file comment",
+					"packages:",
+					"  # only the apps directory for now",
+					"  - apps/*",
+					"",
+				].join("\n"),
+			);
+
+			runMigration(root);
+
+			const yaml = readFileSync(join(root, "pnpm-workspace.yaml"), "utf8");
+			assert.match(yaml, /# top-of-file comment/);
+			assert.match(yaml, /# only the apps directory for now/);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
 	test("leaves pinned v11 packageManager alone", () => {
 		const root = mkdtempSync(join(tmpdir(), "pnpm-codemod-v11-e2e-"));
 		try {

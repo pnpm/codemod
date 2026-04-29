@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { patchDocument } from "@pnpm/yaml.document-sync";
 import { globSync } from "glob";
 import * as semver from "semver";
 import * as YAML from "yaml";
@@ -58,10 +59,14 @@ const writeJson = (path: string, value: unknown): void => {
 	writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
 };
 
-const readYaml = <T>(path: string): T | null => {
+const readYamlDocument = (
+	path: string,
+): { document: YAML.Document; data: Record<string, unknown> } | null => {
 	try {
-		const parsed = YAML.parse(readFileSync(path, "utf8"));
-		return (parsed ?? null) as T | null;
+		const document = YAML.parseDocument(readFileSync(path, "utf8"));
+		if (document.errors.length > 0) return null;
+		const data = (document.toJSON() ?? {}) as Record<string, unknown>;
+		return { document, data };
 	} catch {
 		return null;
 	}
@@ -170,9 +175,12 @@ export const runMigration = (cwd: string = process.cwd()): MigrationRun => {
 		Object.keys(pnpmSettingsFromPackageJson).length > 0;
 
 	const workspaceYamlExists = existsSync(workspaceYamlPath);
-	const existingWorkspaceYaml = workspaceYamlExists
-		? readYaml<Record<string, unknown>>(workspaceYamlPath) ?? {}
-		: {};
+	const workspaceYamlParsed = workspaceYamlExists
+		? readYamlDocument(workspaceYamlPath)
+		: null;
+	const workspaceDocument =
+		workspaceYamlParsed?.document ?? new YAML.Document();
+	const existingWorkspaceYaml = workspaceYamlParsed?.data ?? {};
 	const workspacePackages = Array.isArray(existingWorkspaceYaml.packages)
 		? (existingWorkspaceYaml.packages as string[])
 		: [];
@@ -241,7 +249,11 @@ export const runMigration = (cwd: string = process.cwd()): MigrationRun => {
 		const originalYaml = workspaceYamlExists
 			? readFileSync(workspaceYamlPath, "utf8")
 			: "";
-		const nextYaml = YAML.stringify(next, { singleQuote: true });
+		patchDocument(workspaceDocument, next);
+		const nextYaml = workspaceDocument.toString({
+			singleQuote: true,
+			lineWidth: 0,
+		});
 		if (nextYaml !== originalYaml) {
 			writeFileSync(workspaceYamlPath, nextYaml);
 			mutatedWorkspaceYaml = true;

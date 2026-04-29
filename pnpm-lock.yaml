@@ -54,6 +54,9 @@ importers:
 
   v11:
     dependencies:
+      '@pnpm/yaml.document-sync':
+        specifier: ^1100.0.0
+        version: 1100.0.0
       glob:
         specifier: ^10.4.1
         version: 10.4.5
@@ -61,8 +64,8 @@ importers:
         specifier: ^7.6.2
         version: 7.6.2
       yaml:
-        specifier: ^2.4.5
-        version: 2.4.5
+        specifier: ^2.8.3
+        version: 2.8.3
     devDependencies:
       '@types/node':
         specifier: 20.9.0
@@ -104,24 +107,28 @@ packages:
     engines: {node: '>=14.21.3'}
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   '@biomejs/cli-linux-arm64@1.8.3':
     resolution: {integrity: sha512-fed2ji8s+I/m8upWpTJGanqiJ0rnlHOK3DdxsyVLZQ8ClY6qLuPc9uehCREBifRJLl/iJyQpHIRufLDeotsPtw==}
     engines: {node: '>=14.21.3'}
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   '@biomejs/cli-linux-x64-musl@1.8.3':
     resolution: {integrity: sha512-UHrGJX7PrKMKzPGoEsooKC9jXJMa28TUSMjcIlbDnIO4EAavCoVmNQaIuUSH0Ls2mpGMwUIf+aZJv657zfWWjA==}
     engines: {node: '>=14.21.3'}
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   '@biomejs/cli-linux-x64@1.8.3':
     resolution: {integrity: sha512-I8G2QmuE1teISyT8ie1HXsjFRz9L1m5n83U1O6m30Kw+kPMPSKjag6QGUn+sXT8V+XWIZxFFBoTDEDZW2KPDDw==}
     engines: {node: '>=14.21.3'}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@biomejs/cli-win32-arm64@1.8.3':
     resolution: {integrity: sha512-J+Hu9WvrBevfy06eU1Na0lpc7uR9tibm9maHynLIoAjLZpQU3IW+OKHUtyL8p6/3pT2Ju5t5emReeIS2SAxhkQ==}
@@ -452,6 +459,10 @@ packages:
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
     engines: {node: '>=14'}
 
+  '@pnpm/yaml.document-sync@1100.0.0':
+    resolution: {integrity: sha512-pT+pFPM9r7bFVNbY4OU31H5vDYOzGrLgSVFfPexwo7aOZe8Tt5FELkiegAUIECrfL1oyRd0rGNZy4zagHuWSdg==}
+    engines: {node: '>=22.13'}
+
   '@types/node@20.9.0':
     resolution: {integrity: sha512-nekiGu2NDb1BcVofVcEKMIwzlx4NjHlcjhoxxKBNLtz15Y1z7MYf549DFvkHSId02Ax6kGwWntIBPC3l/JZcmw==}
 
@@ -630,6 +641,11 @@ packages:
   yaml@2.4.5:
     resolution: {integrity: sha512-aBx2bnqDzVOyNKfsysjA2ms5ZlnjSAW2eG3/L5G/CSujfjLJTJsEw1bGw8kCf04KodQWk1pxlGnZ56CRxiawmg==}
     engines: {node: '>= 14'}
+    hasBin: true
+
+  yaml@2.8.3:
+    resolution: {integrity: sha512-AvbaCLOO2Otw/lW5bmh9d/WEdcDFdQp2Z2ZUH3pX9U2ihyUY0nvLv7J6TrWowklRGPYbB/IuIMfYgxaCPg5Bpg==}
+    engines: {node: '>= 14.6'}
     hasBin: true
 
 snapshots:
@@ -835,6 +851,10 @@ snapshots:
 
   '@pkgjs/parseargs@0.11.0':
     optional: true
+
+  '@pnpm/yaml.document-sync@1100.0.0':
+    dependencies:
+      yaml: 2.8.3
 
   '@types/node@20.9.0':
     dependencies:
@@ -1043,3 +1063,5 @@ snapshots:
       strip-ansi: 7.1.0
 
   yaml@2.4.5: {}
+
+  yaml@2.8.3: {}

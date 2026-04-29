@@ -3,9 +3,10 @@
 	"private": true,
 	"license": "MIT",
 	"dependencies": {
+		"@pnpm/yaml.document-sync": "^1100.0.0",
 		"glob": "^10.4.1",
 		"semver": "^7.6.2",
-		"yaml": "^2.4.5"
+		"yaml": "^2.8.3"
 	},
 	"devDependencies": {
 		"@types/node": "20.9.0",
@@ -14,7 +15,12 @@
 		"tsx": "^4.19.0",
 		"typescript": "^5.2.2"
 	},
-	"files": ["README.md", "codemod.yaml", "workflow.yaml", "/dist/index.js"],
+	"files": [
+		"README.md",
+		"codemod.yaml",
+		"workflow.yaml",
+		"/dist/index.js"
+	],
 	"type": "module",
 	"scripts": {
 		"build": "esbuild src/cli.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/index.js --banner:js=\"import{createRequire as __cr}from 'node:module';const require=__cr(import.meta.url);\"",
