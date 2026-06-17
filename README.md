@@ -12,7 +12,7 @@ pnpx codemod pnpm-v10-to-v11
 ```
 [README](./v11/README.md)
 
-## Migrate patch from `patch-package` to pnpm patch format
+## Migrate patches from `patch-package` to pnpm patch format
 ```sh
 pnpx codemod pnpm/patch-convert
 ```
