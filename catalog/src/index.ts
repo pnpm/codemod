@@ -162,7 +162,9 @@ export const runMigration = (
 		writeFileSync(workspaceYamlPath, nextYaml);
 	}
 
-	const movedNames = new Set<string>(selected.map(([name]) => name));
+	const movedVersions = new Map<string, string>(
+		selected.map(([name, { versions }]) => [name, versions[0] as string]),
+	);
 	for (const path of packageJsonPaths) {
 		let pkg: PackageJson;
 		try {
@@ -174,8 +176,10 @@ export const runMigration = (
 		for (const field of DEPENDENCY_FIELDS) {
 			const deps = pkg[field];
 			if (!deps) continue;
-			for (const name of Object.keys(deps)) {
-				if (movedNames.has(name)) {
+			for (const [name, version] of Object.entries(deps)) {
+				// Replace only the shared plain range. An existing
+				// `catalog:<name>` specifier for that dependency stays.
+				if (movedVersions.get(name) === version) {
 					deps[name] = "catalog:";
 					changed = true;
 				}
