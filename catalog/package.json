@@ -18,6 +18,7 @@
 	"type": "module",
 	"scripts": {
 		"build": "esbuild src/cli.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/index.js --banner:js=\"import{createRequire as __cr}from 'node:module';const require=__cr(import.meta.url);\"",
+		"test": "tsx --test test/*.test.ts",
 		"typecheck": "tsc --noEmit"
 	}
 }
